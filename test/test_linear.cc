@@ -6,10 +6,12 @@
 
 #include "mynn.h"
 
-void test_forward() {
-  std::vector<double> in(1000), out(1000);
+using namespace mynn;
 
-  auto layer = LinearLayer<double>(1000, 1000);
+void test_forward() {
+  std::vector<T> in(1000), out(1000);
+
+  auto layer = linear::Layer(1000, 1000, std::make_unique<linear::Grad>(0.01));
   for (int i = 0; i < 1000; i++) {
     for (int j = 0; j < 1000; j++) {
       layer.weight[i * 1000 + j] = (i == j) * 3;
@@ -30,13 +32,12 @@ void test_learn() {
   auto score = [](double x, double x_true) { return std::pow(x - x_true, 2); };
   auto score_diff = [](double x, double x_true) { return 2 * (x - x_true); };
 
-  auto layer = LinearLayer<double>(1, 1);
+  auto layer = linear::Layer(1, 1, std::make_unique<linear::Grad>(0.01));
 
   std::mt19937 engine(42);
   std::normal_distribution<> norm(0.0, 4.0);
   layer.weight[0] = norm(engine);
   layer.bias[0] = norm(engine);
-  layer.set_param(0.01);
 
   for (int i = 0; i < 1000; i++) {
     in = norm(engine);

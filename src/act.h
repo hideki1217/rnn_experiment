@@ -1,12 +1,17 @@
+#pragma once
+
 #include <algorithm>
 #include <cmath>
 #include <memory>
 
+#include "_mynn.h"
+
+namespace mynn {
+namespace act {
 template <typename Act>
-class ActLayer {
+class Layer {
  public:
-  using T = typename Act::Value;
-  ActLayer(int n) : act(Act()), n(n) { _x = std::make_unique<T[]>(n); }
+  Layer(int n) : act(Act()), n(n) { _x = std::make_unique<T[]>(n); }
 
   void set_param() {}
   void forward(const T* x, T* y) {
@@ -32,27 +37,25 @@ class ActLayer {
   const Act act;
   std::unique_ptr<T[]> _x;
 };
+}  // namespace act
 
-template <typename T>
+namespace c1func {
 class Tanh {
  public:
-  using Value = T;
   T operator()(T x) const { return std::tanh(x); }
   T d(T x) const { return 1.0 / std::pow(std::cosh(x), 2); }
 };
 
-template <typename T>
 class Relu {
  public:
-  using Value = T;
   T operator()(T x) const { return (x >= 0) ? x : 0; }
   T d(T x) const { return (x >= 0) ? 1 : 0; }
 };
 
-template <typename T>
 class Identity {
  public:
-  using Value = T;
   T operator()(T x) const { return x; }
   T d(T x) const { return 1; }
 };
+}  // namespace c1func
+}  // namespace mynn

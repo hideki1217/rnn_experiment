@@ -48,8 +48,8 @@ class Tanh {
 
 class Relu {
  public:
-  T operator()(T x) const { return (x >= 0) ? x : 0; }
-  T d(T x) const { return (x >= 0) ? 1 : 0; }
+  T operator()(T x) const { return (x > 0) ? x : 0; }
+  T d(T x) const { return (x > 0) ? 1 : 0; }
 };
 
 class Identity {

@@ -17,11 +17,11 @@ void nn() {
 
   auto l0 = std::make_unique<T[]>(size[0]);
   auto layer1 =
-      linear::Layer(size[0], size[1], std::make_unique<linear::Grad>(0.01));
+      linear::Layer(1, size[0], size[1], std::make_unique<linear::Grad>(0.01));
   auto act1 = act::Layer<c1func::Tanh>(size[1]);
   auto l1 = std::make_unique<T[]>(size[1]);
   auto layer2 =
-      linear::Layer(size[1], size[2], std::make_unique<linear::Grad>(0.01));
+      linear::Layer(1, size[1], size[2], std::make_unique<linear::Grad>(0.01));
   auto l2 = std::make_unique<T[]>(size[2]);
 
   auto f = [](T x) { return x * x; };
@@ -77,16 +77,20 @@ void nn() {
 }
 
 void nn_RMSProp() {
-  int size[] = {1, 100, 1};
+  int size[] = {1, 100, 10, 1};
 
   auto l0 = std::make_unique<T[]>(size[0]);
-  auto layer1 = linear::Layer(size[0], size[1],
-                              std::make_unique<linear::Momentum>(0.01, 0.2));
-  auto act1 = act::Layer<c1func::Tanh>(size[1]);
+  auto layer1 = linear::Layer(1, size[0], size[1],
+                              std::make_unique<linear::Grad>(0.0001));
+  auto act1 = act::Layer<c1func::Relu>(size[1]);
   auto l1 = std::make_unique<T[]>(size[1]);
-  auto layer2 = linear::Layer(size[1], size[2],
-                              std::make_unique<linear::Momentum>(0.01, 0.2));
+  auto layer2 = linear::Layer(1, size[1], size[2],
+                              std::make_unique<linear::Grad>(0.0001));
+  auto act2 = act::Layer<c1func::Relu>(size[2]);
   auto l2 = std::make_unique<T[]>(size[2]);
+  auto layer3 = linear::Layer(1, size[2], size[3],
+                              std::make_unique<linear::Grad>(0.0001));
+  auto l3 = std::make_unique<T[]>(size[3]);
 
   auto f = [](T x) { return x * x; };
 
@@ -104,8 +108,20 @@ void nn_RMSProp() {
     for (int i = 0; i < layer1.x_n * layer1.y_n; i++) {
       layer1.weight[i] = norm(engin);
     }
+    for (int i = 0; i < layer1.y_n; i++) {
+      layer1.bias[i] = norm(engin);
+    }
     for (int i = 0; i < layer2.x_n * layer2.y_n; i++) {
       layer2.weight[i] = norm(engin);
+    }
+    for (int i = 0; i < layer2.y_n; i++) {
+      layer2.bias[i] = norm(engin);
+    }
+    for (int i = 0; i < layer3.x_n * layer3.y_n; i++) {
+      layer3.weight[i] = norm(engin);
+    }
+    for (int i = 0; i < layer3.y_n; i++) {
+      layer3.bias[i] = norm(engin);
     }
   }
 
@@ -125,15 +141,19 @@ void nn_RMSProp() {
     layer1.forward(l0.get(), l1.get());
     act1.forward(l1.get(), l1.get());
     layer2.forward(l1.get(), l2.get());
+    act2.forward(l2.get(), l2.get());
+    layer3.forward(l2.get(), l3.get());
 
-    auto res = score(l2[0], y[idx]);
+    auto res = score(l3[0], y[idx]);
     printf("%d: %.9lf\n", epoch, res);
     if (std::abs(res - prev) < 1e-9) {
-      // break;
+      break;
     } else {
       prev = res;
     }
-    l2[0] = score_diff(l2[0], y[idx]);
+    l3[0] = score_diff(l3[0], y[idx]);
+    layer3.learn_backward(l3.get(), l2.get());
+    act2.learn_backward(l2.get(), l2.get());
     layer2.learn_backward(l2.get(), l1.get());
     act1.learn_backward(l1.get(), l1.get());
     layer1.learn_backward(l1.get(), l0.get());
@@ -144,7 +164,7 @@ void rnn() {
   const int N = 10;
 
   auto l0 = std::make_unique<double[]>(N);
-  auto layer = linear::Layer(N, N, std::make_unique<linear::Grad>(0.01));
+  auto layer = linear::Layer(1, N, N, std::make_unique<linear::Grad>(0.01));
   auto act = act::Layer<c1func::Tanh>(N);
   auto l1 = std::make_unique<double[]>(N);
 

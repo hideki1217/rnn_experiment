@@ -11,8 +11,7 @@ using namespace mynn;
 void test_forward() {
   std::vector<T> in(1000), out(1000);
 
-  auto layer =
-      linear::Layer(1, 1000, 1000, std::make_unique<linear::Grad>(0.01));
+  auto layer = linear::Layer(1, 1000, 1000);
   for (int i = 0; i < 1000; i++) {
     for (int j = 0; j < 1000; j++) {
       layer.weight[i * 1000 + j] = (i == j) * 3;
@@ -33,7 +32,13 @@ void test_learn() {
   auto score = [](double x, double x_true) { return std::pow(x - x_true, 2); };
   auto score_diff = [](double x, double x_true) { return 2 * (x - x_true); };
 
-  auto layer = linear::Layer(1, 1, 1, std::make_unique<linear::Grad>(0.01));
+  auto layer = linear::Layer(1, 1, 1);
+
+  auto opt_w = opt::Grad(0.01);
+  auto opt_b = opt::Grad(0.01);
+
+  opt_w.regist(layer.weight.get(), layer.d_weight.get(), layer.weight_size());
+  opt_b.regist(layer.bias.get(), layer.d_bias.get(), layer.bias_size());
 
   std::mt19937 engine(42);
   std::normal_distribution<> norm(0.0, 4.0);
@@ -47,7 +52,10 @@ void test_learn() {
     printf("%d: act = %f, true = %f, score = %f\n", i, out, f(in),
            score(out, f(in)));
     out = score_diff(out, f(in));
-    layer.learn(&out);
+    layer.backward(&out, &in);
+
+    opt_w.update();
+    opt_b.update();
   }
 
   assert(std::abs(layer.weight[0] - 3.5) < 1e-4);

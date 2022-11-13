@@ -116,6 +116,7 @@ namespace opt {
 class Grad {
  public:
   Grad(T alpha) : alpha(alpha) {}
+  Grad(const Grad& rhs) : Grad(rhs.alpha) {}
   void regist(T* x, const T* dx, int size) {
     this->x = x;
     this->dx = dx;
@@ -143,6 +144,7 @@ class Momentum {
   Momentum(T alpha, T beta) : alpha(alpha), beta(beta) {
     assert(0 <= beta && beta <= 1);
   }
+  Momentum(const Momentum& rhs) : Momentum(rhs.alpha, rhs.beta) {}
   void regist(T* x, const T* dx, int size) {
     assert(!_v);
     init(size);
@@ -178,6 +180,7 @@ class RMSProp {
   RMSProp(T alpha, T beta) : alpha(alpha), beta(beta) {
     assert(0 <= beta && beta <= 1);
   }
+  RMSProp(const RMSProp& rhs) : RMSProp(rhs.alpha, rhs.beta) {}
   void regist(T* x, const T* dx, int size) {
     assert(!_v);
     init(size);
@@ -216,8 +219,10 @@ class Adam {
     assert(0 <= beta0 && beta0 <= 1);
     assert(0 <= beta1 && beta1 <= 1);
   }
+  Adam(const Adam& rhs) : Adam(rhs.alpha, rhs.beta0, rhs.beta1) {}
   void regist(T* x, const T* dx, int size) {
-    assert(!_v);
+    assert(!_v0);
+    assert(!_v1);
     init(size);
     this->x = x;
     this->dx = dx;

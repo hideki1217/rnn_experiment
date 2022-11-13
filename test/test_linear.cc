@@ -34,8 +34,8 @@ void test_learn() {
 
   auto layer = linear::Layer(1, 1, 1);
 
-  auto opt_w = opt::Grad(0.01);
-  auto opt_b = opt::Grad(0.01);
+  opt::Grad opt_w(0.01);
+  opt::Grad opt_b(0.01);
 
   opt_w.regist(layer.weight.get(), layer.d_weight.get(), layer.weight_size());
   opt_b.regist(layer.bias.get(), layer.d_bias.get(), layer.bias_size());

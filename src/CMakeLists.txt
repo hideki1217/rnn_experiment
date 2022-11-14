@@ -9,3 +9,8 @@ add_executable(mynn_sample
     main.cc
 )
 target_link_libraries(mynn_sample mynn)
+
+add_executable(mnist
+    mnist.cc
+)
+target_link_libraries(mnist mynn)

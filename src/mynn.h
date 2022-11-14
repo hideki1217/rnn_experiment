@@ -1,3 +1,5 @@
+#pragma once
+
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -62,6 +64,65 @@ class Layer : public LayerBase {
 
 namespace act {
 
+class SoftMax : public LayerBase {
+ public:
+  SoftMax(int b_n, int n) : b_n(b_n), n(n) {
+    _y = std::make_unique<T[]>(b_n * n);
+  }
+  SoftMax(LayerBase& before) : SoftMax(before.batch_size(), before.y_size()){};
+
+  Layers kind() const { return Layers::Act; }
+  int y_size() const { return n; }
+  int x_size() const { return y_size(); }
+  int batch_size() const { return b_n; }
+  void forward(const T* x, T* y) {
+    for (int b = 0; b < b_n; b++) {
+      T max = max_n(&x[b * n], n);
+      for (int i = 0; i < n; i++) {
+        y[b * n + i] = std::exp(x[b * n + i] - max);
+      }
+
+      T _sum = 1.0 / (sum_n(&y[b * n], n) + 1e-12);
+      for (int i = 0; i < n; i++) {
+        y[b * n + i] *= _sum;
+      }
+    }
+
+    std::copy_n(y, b_n * n, _y.get());
+  }
+  void backward(const T* dy, T* dx) {
+    for (int b = 0; b < b_n; b++) {
+      T sum = 0;
+      for (int j = 0; j < n; j++) {
+        sum += dy[b * n + j] * _y[b * n + j];
+      }
+
+      for (int i = 0; i < n; i++) {
+        dx[b * n + i] = (dy[b * n + i] - sum) * _y[b * n + i];
+      }
+    }
+  }
+
+  int b_n, n;
+
+ private:
+  T max_n(const T* x, int n) {
+    T res = 0;
+    for (int i = 0; i < n; i++) {
+      res = std::max(res, x[i]);
+    }
+    return res;
+  }
+  T sum_n(const T* x, int n) {
+    T res = 0;
+    for (int i = 0; i < n; i++) {
+      res += x[i];
+    }
+    return res;
+  }
+  std::unique_ptr<T[]> _y;
+};
+
 template <typename F>
 class Layer : public LayerBase {
  public:
@@ -71,16 +132,16 @@ class Layer : public LayerBase {
   Layer(LayerBase& before) : Layer(before.batch_size(), before.y_size()){};
 
   Layers kind() const { return Layers::Act; }
-  virtual int y_size() const { return n; }
-  virtual int x_size() const { return y_size(); }
-  virtual int batch_size() const { return b_n; }
-  virtual void forward(const T* x, T* y) {
+  int y_size() const { return n; }
+  int x_size() const { return y_size(); }
+  int batch_size() const { return b_n; }
+  void forward(const T* x, T* y) {
     std::copy_n(x, b_n * n, _x.get());
     for (int i = 0; i < b_n * n; i++) {
       y[i] = act(x[i]);
     }
   }
-  virtual void backward(const T* dy, T* dx) {
+  void backward(const T* dy, T* dx) {
     for (int i = 0; i < b_n * n; i++) {
       dx[i] = dy[i] * act.d(_x[i]);
     }

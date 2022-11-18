@@ -103,6 +103,8 @@ int nn_sample() {
     opt2_w.update();
     opt2_b.update();
   }
+
+  return 0;
 }
 
 int main() {

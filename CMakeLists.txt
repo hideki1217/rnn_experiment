@@ -3,6 +3,9 @@ cmake_minimum_required(VERSION 3.22)
 project(mynn)
 
 set_property(GLOBAL PROPERTY CXX_STANDARD 17)
+set(CMAKE_CXX_FLAGS_RELEASE        "-O3 -march=native -DNDEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG          "-O0 -march=native -g")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -march=native -DNDEBUG -g -pg")
 
 link_directories(/usr/local/OpenBLAS/lib)
 include_directories(/usr/local/OpenBLAS/include/openblas)

@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 
+#include "common.h"
 #include "mynn.h"
 #include "mynn_util.h"
 
@@ -89,46 +90,6 @@ class Mnist {
     return ((int)c1 << 24) + ((int)c2 << 16) + ((int)c3 << 8) + c4;
   }
 };
-
-class CrossEntropy {
- public:
-  CrossEntropy(int b_n, int size) : b_n(b_n), size(size) {}
-  T operator()(const T* y_act, const int* y_true) {
-    T res = 0;
-    for (int b = 0; b < b_n; b++) {
-      res -= std::log(y_act[b * size + y_true[b]]);
-    }
-    return res;
-  }
-  void d(const T* y_act, const int* y_true, T* dy) {
-    for (int b = 0; b < b_n; b++) {
-      for (int i = 0; i < size; i++) {
-        if (i == y_true[b]) {
-          dy[b * size + y_true[b]] =
-              -1.0 / (y_act[b * size + y_true[b]] + 1e-12);
-        } else {
-          dy[b * size + i] = 0.0;
-        }
-      }
-    }
-  }
-
-  int size;
-  int b_n;
-};
-
-template <typename V>
-int argmax_n(const V* a, int n) {
-  V max = -1000000;
-  int res = -1;
-  for (int i = 0; i < n; i++) {
-    if (max < a[i]) {
-      max = a[i];
-      res = i;
-    }
-  }
-  return res;
-}
 
 int main() {
   const int batch = 100, x_n = 28 * 28, y_n = 10;

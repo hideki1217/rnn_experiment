@@ -13,6 +13,7 @@ using T = double;
 enum class Layers {
   Linear,
   Act,
+  Custom,
 };
 class LayerBase {
  public:
@@ -24,20 +25,19 @@ class LayerBase {
   virtual void backward(const T* dy, T* dx) = 0;
 };
 
-namespace linear {
-
-class Layer : public LayerBase {
+namespace impl {
+class Linear : public LayerBase {
  public:
-  Layer(int b_n, int x_n, int y_n) : b_n(b_n), x_n(x_n), y_n(y_n) {
-    weight = std::make_unique<T[]>(x_n * y_n);
-    bias = std::make_unique<T[]>(y_n);
-    d_weight = std::make_unique<T[]>(x_n * y_n);
-    d_bias = std::make_unique<T[]>(y_n);
-
+  Linear(int b_n, int x_n, int y_n, T* weight, T* bias, T* d_weight, T* d_bias)
+      : b_n(b_n),
+        x_n(x_n),
+        y_n(y_n),
+        weight(weight),
+        bias(bias),
+        d_weight(d_weight),
+        d_bias(d_bias) {
     _x = std::make_unique<T[]>(b_n * x_n);
   }
-  Layer(LayerBase& before, int y_n)
-      : Layer(before.batch_size(), before.y_size(), y_n){};
   Layers kind() const { return Layers::Linear; }
   int x_size() const { return x_n; }
   int y_size() const { return y_n; }
@@ -48,13 +48,51 @@ class Layer : public LayerBase {
   int bias_size() { return y_n; }
 
   int b_n, x_n, y_n;
+  T* weight;
+  T* bias;
+  T* d_weight;
+  T* d_bias;
+
+  std::unique_ptr<T[]> _x;
+};
+}  // namespace impl
+
+namespace linear {
+
+class Layer : public LayerBase {
+ public:
+  Layer(int b_n, int x_n, int y_n) : b_n(b_n), x_n(x_n), y_n(y_n) {
+    weight = std::make_unique<T[]>(x_n * y_n);
+    bias = std::make_unique<T[]>(y_n);
+    d_weight = std::make_unique<T[]>(x_n * y_n);
+    d_bias = std::make_unique<T[]>(y_n);
+
+    _impl = std::make_unique<impl::Linear>(
+        b_n, x_n, y_n, weight.get(), bias.get(), d_weight.get(), d_bias.get());
+  }
+  Layer(LayerBase& before, int y_n)
+      : Layer(before.batch_size(), before.y_size(), y_n){};
+  Layers kind() const { return Layers::Linear; }
+  int x_size() const { return x_n; }
+  int y_size() const { return y_n; }
+  int batch_size() const { return b_n; }
+  void forward(const T* x, T* y) { _impl->forward(x, y); }
+  void backward(const T* dy, T* dx) {
+    std::fill_n(d_weight.get(), x_n * y_n, T(0));
+    std::fill_n(d_bias.get(), y_n, T(0));
+    std::fill_n(dx, b_n * x_n, T(0));
+    _impl->backward(dy, dx);
+  }
+  int weight_size() { return x_n * y_n; }
+  int bias_size() { return y_n; }
+
+  int b_n, x_n, y_n;
   std::unique_ptr<T[]> weight;
   std::unique_ptr<T[]> bias;
   std::unique_ptr<T[]> d_weight;
   std::unique_ptr<T[]> d_bias;
 
- private:
-  std::unique_ptr<T[]> _x;
+  std::unique_ptr<impl::Linear> _impl;
 
  public:
   void xivier(int seed);
@@ -150,7 +188,6 @@ class Layer : public LayerBase {
   int b_n, n;
   F act;
 
- private:
   std::unique_ptr<T[]> _x;
 };
 }  // namespace act
@@ -319,4 +356,34 @@ class Adam {
   }
 };
 }  // namespace opt
+
+namespace custom {
+
+class RNN : public LayerBase {
+ public:
+  RNN(int b_n, int n, int depth);
+  RNN(LayerBase& before, int depth)
+      : RNN(before.batch_size(), before.y_size(), depth){};
+  Layers kind() const { return Layers::Custom; }
+  int x_size() const { return n; }
+  int y_size() const { return n; }
+  int batch_size() const { return b_n; }
+  void forward(const T* x, T* y);
+  void backward(const T* dy, T* dx);
+  int weight_size() { return n * n; }
+  int bias_size() { return n; }
+
+  int b_n, n, depth;
+  std::unique_ptr<T[]> weight;
+  std::unique_ptr<T[]> bias;
+  std::unique_ptr<T[]> d_weight;
+  std::unique_ptr<T[]> d_bias;
+
+  std::unique_ptr<T[]> state;
+
+  std::vector<impl::Linear> _lins;
+  std::vector<act::Layer<c1func::Tanh>> _acts;
+  std::unique_ptr<T[]> _cache;
+};
+}  // namespace custom
 }  // namespace mynn

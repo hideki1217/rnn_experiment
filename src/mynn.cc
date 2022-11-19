@@ -7,20 +7,9 @@
 #include <memory>
 #include <random>
 
-void mynn::linear::Layer::xivier(int seed) {
+void mynn::linear::Layer::normal(T ro, int seed) {
   std::mt19937 engine(seed);
-  std::normal_distribution<> dist(0.0, 1.0 / std::sqrt(x_n));
-
-  for (int i = 0; i < y_n * x_n; i++) {
-    weight[i] = dist(engine);
-  }
-
-  std::fill_n(bias.get(), y_n, T(0));
-}
-
-void mynn::linear::Layer::he(int seed) {
-  std::mt19937 engine(seed);
-  std::normal_distribution<> dist(0.0, std::sqrt(2.0 / x_n));
+  std::normal_distribution<> dist(0.0, std::sqrt(ro / x_n));
 
   for (int i = 0; i < y_n * x_n; i++) {
     weight[i] = dist(engine);
@@ -99,6 +88,7 @@ mynn::custom::RNN::RNN(int b_n, int n, int depth)
     _acts.push_back(act::Layer<c1func::Tanh>(b_n, n));
   }
 }
+void mynn::custom::RNN::reset() { std::fill_n(state.get(), b_n * n, T(0)); }
 void mynn::custom::RNN::forward(const T* x, T* y) {
   /**
    * @brief x is [b_n][n], y is [b_n][n]
@@ -123,8 +113,8 @@ void mynn::custom::RNN::backward(const T* dy, T* dx) {
   std::fill_n(d_bias.get(), bias_size(), T(0));
   for (int t = depth - 1; t >= 0; t--) {
     _acts[t].backward(dx, _cache.get());
-
     std::fill_n(dx, b_n * n, T(0));
     _lins[t].backward(_cache.get(), dx);
   }
+  std::copy_n(_cache.get(), b_n * n, dx);
 }

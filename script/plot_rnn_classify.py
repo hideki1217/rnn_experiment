@@ -7,4 +7,4 @@ df.rename(columns={1: "batch_score", 2: "test_score",
           3: "test_acc"}, inplace=True)
 
 df.plot(subplots=True)
-plt.show()
+plt.savefig("tmp/rnn_dim2_beta20.png")

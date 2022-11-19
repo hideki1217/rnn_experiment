@@ -34,16 +34,18 @@ std::vector<int> random_index(int len, int max_index) {
   return res;
 }
 
-class DataMaker {
+class DataProc {
  public:
-  DataMaker(int dim, int inner_dim, int class_n, int cluster_n, T noise_scale)
+  DataProc(int dim, int inner_dim, int class_n, int cluster_n, T noise_scale,
+           int seed)
       : dim(dim),
         inner_dim(inner_dim),
         class_n(class_n),
         cluster_n(cluster_n),
-        engine(std::mt19937(47)),
+        engine(std::mt19937(seed)),
         noise_scale(noise_scale),
-        noise(std::normal_distribution<>(0.0, noise_scale)) {
+        noise(std::normal_distribution<>(0.0, noise_scale)),
+        rand(std::uniform_int_distribution<>(0, cluster_n - 1)) {
     means = std::make_unique<T[]>(cluster_n * inner_dim);
     labels = std::make_unique<int[]>(cluster_n);
     w = std::make_unique<T[]>(dim * inner_dim);
@@ -53,7 +55,7 @@ class DataMaker {
   }
 
   int random_gen(T *res) {
-    int c = std::rand() % cluster_n;
+    int c = rand(engine);  // std::rand() % cluster_n;
     return gen(res, c);
   }
 
@@ -78,6 +80,7 @@ class DataMaker {
   T noise_scale;
   std::mt19937 engine;
   std::normal_distribution<T> noise;
+  std::uniform_int_distribution<int> rand;
   std::unique_ptr<T[]> means;
   std::unique_ptr<int[]> labels;
   std::unique_ptr<T[]> w;
@@ -90,17 +93,16 @@ class DataMaker {
   }
   void init_means() {
     T minimam =
-        noise_scale * 5;  // 標準偏差の5倍の距離は保つ　外に出る確率が1e-7
+        noise_scale * 10;  // 標準偏差の5倍の距離は保つ　外に出る確率が1e-7
 
     T tmp[inner_dim];
+    const T L = 4.0;
+    std::uniform_real_distribution<> unif(-L / 2, L / 2);
     for (int c = 0; c < cluster_n; c++) {
       bool flag = true;
       while (flag) {
-        for (auto &x : tmp) x = noise(engine);
-        T sum = 0;
-        for (auto &x : tmp) sum += x * x;
-        T _l = 4.0 / std::sqrt(sum);
-        for (auto &x : tmp) x *= _l;
+        // uniform sample from inner_dim's hypercube
+        for (auto &x : tmp) x = unif(engine);
 
         flag = false;
 
@@ -124,34 +126,29 @@ class DataMaker {
   }
 };
 
-// 収束したりしなかったり
-// // 112.374572754
-// // 112.374725342
-// const T weight_beta = 112.374572754, weight_eps = 0.01;
-// opt::RMSProp optimizer(0.0001, 0.9);
-// int batch = 3;
-// int class_n = 2, dim = 200, inner_dim = dim;
-// int M = 60;
-// int test_N = 20;
-
 int main() {
-  const T weight_beta = 20, weight_eps = 0.01;
-  opt::RMSProp optimizer(0.0001, 0.9);
-  int batch = 15;
-  int class_n = 2, dim = 200, inner_dim = 2;
-  int M = 60;
-  int test_N = batch;
+  const T weight_beta = 250, weight_eps = 0.01;
+  const T out_ro = 0.3;
+  const T opt_lr = 0.001, opt_beta = 0.99;
+  const int batch = 10;
+  const int class_n = 2, dim = 200, inner_dim = 2;
+  const T noise_scale = 0.02;
+  const int M = 60;
+  const int test_N = batch;
+  const int seed = 42;
+  const int patience = 5;
 
   Logger log("../../log/rnn_classify.csv");
+  std::mt19937 engine(seed);
 
-  DataMaker maker(dim, inner_dim, class_n, M, 0.01);
+  DataProc proc(dim, inner_dim, class_n, M, noise_scale, engine());
 
   std::vector<std::vector<T>> test_X;  //(M * test_N);
   std::vector<int> test_Y;             //(M * test_N);
   for (int m = 0; m < M; m++) {
     for (int n = 0; n < test_N; n++) {
       std::vector<T> res(dim);
-      auto label = maker.gen(res.data(), m);
+      auto label = proc.gen(res.data(), m);
 
       test_X.push_back(res);
       test_Y.push_back(label);
@@ -159,19 +156,10 @@ int main() {
   }
 
   auto rnn = std::make_unique<custom::RNN>(batch, dim, 10);
-  // auto cnn = std::make_unique<linear::Layer>(batch, dim, dim);
-  // auto act = std::make_unique<act::Layer<c1func::Tanh>>(*cnn);
   auto out = std::make_unique<linear::Layer>(*rnn, class_n);
   auto soft = std::make_unique<act::SoftMax>(*out);
 
-  // auto out = std::make_unique<linear::Layer>(batch, dim, class_n);
-  // auto soft = std::make_unique<act::SoftMax>(*out);
-
-  auto rnn_state = rnn->state.get();
-  auto rnn_state_n = rnn->b_n * rnn->n;
-  auto reset_state = [=]() { std::fill_n(rnn_state, rnn_state_n, T(0)); };
   {
-    std::mt19937 engine(42);
     std::normal_distribution<> dist(0.0, weight_beta / std::sqrt(rnn->n));
 
     std::fill_n(rnn->weight.get(), rnn->weight_size(), T(0));
@@ -182,20 +170,17 @@ int main() {
 
     std::fill_n(rnn->bias.get(), rnn->bias_size(), T(0));
   }
-  out->xivier(44);
+  out->normal(out_ro, engine());
 
-  // cnn->xivier(45);
-
+  opt::RMSProp optimizer(opt_lr, opt_beta);
   Model<decltype(optimizer)> model(optimizer);
   model.add_layer(std::move(rnn));
-  // model.add_layer(std::move(cnn));
-  // model.add_layer(std::move(act));
   model.add_layer(std::move(out));
   model.add_layer(std::move(soft));
 
   CrossEntropy metrics(batch, class_n);
 
-  auto evaluate = [&]() {
+  auto eval_test = [&]() {
     T metric_score = 0;
     int correct = 0, N = 0;
     for (int e = 0; e < test_X.size() / batch; e++) {
@@ -204,7 +189,7 @@ int main() {
         std::copy_n(test_X[e * batch + b].data(), dim, &(model.x())[b * dim]);
         batch_Y[b] = test_Y[e * batch + b];
       }
-
+      model.reset();
       model.forward();
 
       metric_score += metrics(model.y(), batch_Y);
@@ -218,7 +203,6 @@ int main() {
     }
     metric_score /= test_X.size();
 
-    printf("test_score = %lf, test_acc = %lf\n", metric_score, (T)correct / N);
     return std::tuple<T, T>(metric_score, (T)correct / N);
   };
   auto accuracy = [&](int *batch_Y) {
@@ -233,23 +217,33 @@ int main() {
     return (T)correct / N;
   };
 
-  int epochs = 20000;
-  int eval = 100;
+  ReduceOnPleatou<decltype(optimizer)> scheduler(model, patience, 0.5);
+
+  const int epochs = 1000000;
+  const int eval = 100;
   for (int e = 0; e < epochs; e++) {
     int batch_Y[batch];
     for (int b = 0; b < batch; b++) {
-      batch_Y[b] = maker.random_gen(&(model.x())[b * dim]);
+      batch_Y[b] = proc.random_gen(&(model.x())[b * dim]);
     }
-
-    // reset_state();
+    model.reset();
     model.forward();
     if (e % eval == 0) {
-      T score = metrics(model.y(), batch_Y);
-      T acc = accuracy(batch_Y);
-      printf("%d: batch_score = %lf, batch_acc = %lf, ", e, score, acc);
-      auto res = evaluate();
+      T batch_score = metrics(model.y(), batch_Y);
+      T batch_acc = accuracy(batch_Y);
+      T test_score, test_acc;
+      std::tie(test_score, test_acc) = eval_test();
 
-      log.print("%d,%f,%f,%f\n", e, score, std::get<0>(res), std::get<1>(res));
+      printf(
+          "%d: lr = %lf, batch_score = %lf, batch_acc = %lf, test_score = %lf, "
+          "test_acc = %lf\n",
+          e, model.opts[0]->alpha, batch_score, batch_acc, test_score,
+          test_acc);
+      log.print("%d,%f,%f,%f\n", e, batch_score, test_score, test_acc);
+
+      if (scheduler.step(test_score)) {
+        printf("learning late halfed\n");
+      }
     }
     metrics.d(model.y(), batch_Y, model.y());
     model.backward();

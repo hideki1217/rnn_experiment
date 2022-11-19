@@ -71,6 +71,12 @@ class Model {
 
   LayerBase& top() { return *layers[layers.size() - 1]; }
 
+  void reset() {
+    for (auto& l : layers) {
+      l->reset();
+    }
+  }
+
   void forward() {
     for (int i = 0; i < layers.size(); i++) {
       layers[i]->forward(bufs[x_index[i]].get(), bufs[y_index[i]].get());
@@ -99,6 +105,40 @@ class Model {
   Opt base_opt;
 };
 
+template <typename Opt>
+class ReduceOnPleatou {
+ public:
+  ReduceOnPleatou(Model<Opt>& model, int patience, T lr_ratio)
+      : model(model), patience(patience), lr_ratio(lr_ratio) {}
+
+  bool step(T score) {
+    if (score >= min_score) {
+      count++;
+      if (count >= patience) {
+        min_score = score;
+        count = 0;
+
+        for (auto& o : model.opts) {
+          o->alpha *= lr_ratio;
+        }
+        return true;
+      }
+    } else {
+      min_score = score;
+      count = 0;
+    }
+    return false;
+  }
+
+  int patience;
+  T lr_ratio;
+
+ private:
+  Model<Opt>& model;
+  T min_score = 1e10;
+  int count = 0;
+};
+
 class CrossEntropy {
  public:
   CrossEntropy(int b_n, int size) : b_n(b_n), size(size) {}
@@ -124,6 +164,26 @@ class CrossEntropy {
 
   int size;
   int b_n;
+};
+
+class MSE {
+ public:
+  MSE(int n) : n(n) {}
+  T operator()(const T* y_act, const T* y_true) {
+    T res = 0, _n = 1.0 / n;
+    for (int i = 0; i < n; i++) {
+      res += std::pow(y_act[i] - y_true[i], 2) * _n;
+    }
+    return res / 2.0;
+  }
+
+  void d(const T* y_act, const T* y_true, T* dy) {
+    T _n = 1.0 / n;
+    for (int i = 0; i < n; i++) {
+      dy[i] = (y_act[i] - y_true[i]) * _n;
+    }
+  }
+  int n;
 };
 
 }  // namespace mynn

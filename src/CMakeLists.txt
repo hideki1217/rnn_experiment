@@ -2,18 +2,17 @@ add_library(mynn STATIC
     mynn.cc
     mynn.h
 )
-target_link_libraries(mynn openblas)
+target_link_libraries(mynn openblas pthread)
 
-
-add_executable(mynn_sample
-    main.cc
+add_executable(mlp_mnist
+    sample/mlp_mnist.cc
 )
-target_link_libraries(mynn_sample mynn)
+target_link_libraries(mlp_mnist mynn)
 
-add_executable(mnist
-    mnist.cc
+add_executable(rnn_mnist
+    sample/rnn_mnist.cc
 )
-target_link_libraries(mnist mynn)
+target_link_libraries(rnn_mnist mynn)
 
 add_executable(rnn_classify
     rnn_classify.cc

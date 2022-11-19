@@ -21,6 +21,8 @@ class LayerBase {
   virtual int y_size() const = 0;
   virtual int x_size() const = 0;
   virtual int batch_size() const = 0;
+
+  virtual void reset(){};
   virtual void forward(const T* x, T* y) = 0;
   virtual void backward(const T* dy, T* dx) = 0;
 };
@@ -95,8 +97,9 @@ class Layer : public LayerBase {
   std::unique_ptr<impl::Linear> _impl;
 
  public:
-  void xivier(int seed);
-  void he(int seed);
+  /*Jij ~ N(0, sqrt(ro / x_N))*/
+  void normal(T ro, int seed);
+  void xivier(int seed) { normal(1.0, seed); }
 };
 }  // namespace linear
 
@@ -368,6 +371,7 @@ class RNN : public LayerBase {
   int x_size() const { return n; }
   int y_size() const { return n; }
   int batch_size() const { return b_n; }
+  void reset();
   void forward(const T* x, T* y);
   void backward(const T* dy, T* dx);
   int weight_size() { return n * n; }

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.0)
 
 project(mynn)
 
@@ -7,8 +7,8 @@ set(CMAKE_CXX_FLAGS_RELEASE        "-O3 -march=native -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG          "-O0 -march=native -g")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -march=native -DNDEBUG -g -pg")
 
-link_directories(/usr/local/OpenBLAS/lib)
-include_directories(/usr/local/OpenBLAS/include/openblas)
+link_directories(~/local/OpenBLAS/lib)
+include_directories(~/local/OpenBLAS/include/openblas)
 
 enable_testing()
 

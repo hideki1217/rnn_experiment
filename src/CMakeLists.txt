@@ -18,3 +18,8 @@ add_executable(rnn_classify
     rnn_classify.cc
     )
 target_link_libraries(rnn_classify mynn)
+
+add_executable(ryapunov_sample
+    ryapunov.cc
+    )
+target_link_libraries(ryapunov_sample openblas pthread)

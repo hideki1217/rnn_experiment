@@ -1,4 +1,7 @@
+#pragma once
+
 #include <cassert>
+#include <memory>
 #include <random>
 
 template <typename V>
@@ -75,3 +78,39 @@ void transpose(int m, int n, const V* src, V* dst) {
     }
   }
 }
+
+template <typename B, typename D>
+std::unique_ptr<B> down_cast(std::unique_ptr<D>&& ptr) {
+  return std::unique_ptr<B>(static_cast<B*>(ptr.release()));
+}
+
+template <typename D, typename B>
+std::unique_ptr<D> dynamic_ptr_cast(std::unique_ptr<B>&& ptr) {
+  auto p = ptr.release();
+  auto res = dynamic_cast<D*>(p);
+  if (res) {
+    return std::unique_ptr<D>(res);
+  } else {
+    abort();
+  }
+}
+
+struct Acc {
+  Acc() { reset(); }
+  void reset() { correct = n = 0; }
+  void ok() {
+    correct++;
+    n++;
+  }
+  void err() { n++; }
+  void step(int res) {
+    if (res)
+      ok();
+    else
+      err();
+  }
+  double result() { return (double)correct / n; }
+
+  int correct;
+  int n;
+};

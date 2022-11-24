@@ -120,22 +120,21 @@ class DataProc {
   }
 };
 
-int main() {
-  const T weight_beta = 1, weight_eps = 0.01;
+void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
+  const T weight_eps = 0.01;
   const T out_ro = 0.3;
   const T opt_lr = 0.001, opt_beta = 0.99;
   const int batch = 10;
-  const int class_n = 2, dim = 200, inner_dim = 2;
+  const int class_n = 2, dim = 200;
   const T noise_scale = 0.02;
   const int M = 60;
   const int test_N = batch;
-  const int seed = 42;
-  const int patience = 5;
   const int rnn_t = 10;
+  const int data_seed = 42;
 
-  std::mt19937 engine(seed);
+  std::mt19937 engine(model_seed);
 
-  DataProc proc(dim, inner_dim, class_n, M, noise_scale, engine());
+  DataProc proc(dim, inner_dim, class_n, M, noise_scale, data_seed);
 
   std::vector<std::vector<T>> test_X;
   std::vector<int> test_Y;
@@ -269,7 +268,7 @@ int main() {
       std::vector<T> input(batch * dim);
 
       auto reset = [&]() { std::fill_n(affine->input(), batch * dim, T(0)); };
-      auto set_input = [&]() {
+      auto first_forward = [&]() {
         affine->forward(tanh->input());
         for (int i = 0; i < batch * dim; i++) {
           tanh->input()[i] += input[i];
@@ -286,10 +285,8 @@ int main() {
           std::copy_n(test_X[e * batch + b].data(), dim, &input[b * dim]);
         }
         reset();
-        set_input();
-
         for (int t = 0; t < span; t++) {
-          forward();
+          (t == 0) ? first_forward() : forward();
 
           for (int b = 0; b < batch; b++) {
             std::vector<T> state(dim);
@@ -302,7 +299,7 @@ int main() {
 
     char dir[128];
     std::sprintf(dir, "../../log/%d_%d_%d_%d", (int)weight_beta, inner_dim,
-                 patience, seed);
+                 patience, model_seed);
     mkdir(dir, 0777);
     for (int t = 0; t < span; t++) {
       char path[256];
@@ -325,4 +322,17 @@ int main() {
       }
     }
   }
+}
+
+int main() {
+  std::mt19937 engine(42);
+  const int n = 10;
+
+  std::vector<int> seeds;
+  for (int i = 0; i < n; i++) seeds.emplace_back(engine());
+
+  for (auto seed : seeds) experiment(1, 2, 5, seed);
+  for (auto seed : seeds) experiment(20, 2, 5, seed);
+  for (auto seed : seeds) experiment(100, 2, 5, seed);
+  for (auto seed : seeds) experiment(250, 2, 5, seed);
 }

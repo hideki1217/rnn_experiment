@@ -1,52 +1,66 @@
 from pathlib import Path
 import re
+from collections import defaultdict
 
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 import parse
-
-workspace = Path(R"tmp/trajectory")
-if not workspace.exists():
-    workspace.mkdir()
 
 savedir = Path(R"tmp/trajectory")
 if not savedir.exists():
     savedir.mkdir()
 
 datadir = Path(R"log")
+param_dict = defaultdict(list)
 for data in datadir.glob(R"*_*_*_*"):
     w_beta, inner_dim, patience, seed = parse.parse(R"{:d}_{:d}_{:d}_{:d}", data.name)
+    def _f(path):
+        (time,) = parse.parse(R"{:d}.csv", path.name) 
+        state = pd.read_csv(path, header=None)
+        return time, state
 
-    save = savedir / data.name
+    labels = pd.read_csv(data/"labels.csv", header=None).values.reshape((-1,))
+    data = [_f(csv) for csv in filter(lambda x: re.match(R"[0-9]*\.csv", x.name), data.iterdir())]
+    data.sort()
+    param_dict[(w_beta, inner_dim, patience)].append((seed, data, labels))
+
+for param, datas in param_dict.items():
+    param_stamp = f"{param[0]}_{param[1]}_{param[2]}"
+
+    n = len(datas)
+    span = len(datas[0][1])
+
+    save = savedir / param_stamp
     if not save.exists():
         save.mkdir()
 
-    labels = pd.read_csv(data/"labels.csv", header=None).values.reshape((-1,))
-    label_set = set(labels)
-    for csv in filter(lambda x: re.match(R"[0-9]*\.csv", x.name), data.iterdir()):
-        (time,) = parse.parse(R"{:d}.csv", csv.name) 
-        state = pd.read_csv(csv, header=None)
+    for t in range(1, span + 1):
+        ncol = 4
+        nrow = (n + ncol - 1) // ncol
+        
+        fig, axes = plt.subplots(nrow, ncol, figsize=(4*ncol, 3*nrow), tight_layout=True)
+        fig.suptitle(f"t = {t}, {param_stamp}")
 
-        print(state.head())
+        for i, (seed, data, labels) in enumerate(datas):
+            ax = axes[i//ncol, i%ncol]
 
-        scalar = StandardScaler(with_std=False)
-        state = scalar.fit_transform(state)
+            _, state = next(filter(lambda x: x[0] == t, data))
+            label_set = set(labels)
 
-        pca = PCA(n_components=state.shape[1])
-        pcaed = pca.fit_transform(state)
+            print(f"{param_stamp}:{t}: {seed}")
 
-        fig, ax = plt.subplots()
-        for label in label_set:
-            index = labels == label
-            pca1 = pcaed[index, 0]
-            pca2 = pcaed[index, 1]
-            ax.scatter(pca1, pca2)
-        ax.set_xlabel("pca1")
-        ax.set_ylabel("pca2")
-        ax.set_title(f"t = {time}, {w_beta}, {inner_dim}, {patience}, {seed}")
-        fig.savefig(save/f"{time}.png")
-
-
-
+            pca = PCA(n_components=2)
+            pcaed = pca.fit_transform(state)
+            for label in label_set:
+                index = labels == label
+                pca1 = pcaed[index, 0]
+                pca2 = pcaed[index, 1]
+                ax.scatter(pca1, pca2)
+            ax.set_xlabel("pca1")
+            ax.set_ylabel("pca2")
+        
+        fig.savefig(save/f"{t}.png")
+        plt.close()
+        

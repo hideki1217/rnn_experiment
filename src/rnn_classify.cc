@@ -1,3 +1,4 @@
+#include <sys/stat.h>
 
 #include <fstream>
 #include <iostream>
@@ -7,6 +8,7 @@
 
 #include "common.h"
 #include "mynn.h"
+#include "mynn_custom.h"
 #include "mynn_util.h"
 
 using namespace mynn;
@@ -25,14 +27,6 @@ class Logger {
   std::string path;
   FILE *file;
 };
-
-std::vector<int> random_index(int len, int max_index) {
-  std::vector<int> res(len);
-  for (int i = 0; i < len; i++) {
-    res[i] = std::rand() % max_index;
-  }
-  return res;
-}
 
 class DataProc {
  public:
@@ -109,7 +103,7 @@ class DataProc {
         for (int i = 0; i < c; i++) {
           T distance = 0;
           for (int j = 0; j < inner_dim; j++) {
-            distance += std::pow(means[i * inner_dim + j] - tmp[j], minimam);
+            distance += std::pow(means[i * inner_dim + j] - tmp[j], 2.0);
           }
           distance = std::sqrt(distance);
 
@@ -127,7 +121,7 @@ class DataProc {
 };
 
 int main() {
-  const T weight_beta = 250, weight_eps = 0.01;
+  const T weight_beta = 1, weight_eps = 0.01;
   const T out_ro = 0.3;
   const T opt_lr = 0.001, opt_beta = 0.99;
   const int batch = 10;
@@ -137,14 +131,14 @@ int main() {
   const int test_N = batch;
   const int seed = 42;
   const int patience = 5;
+  const int rnn_t = 10;
 
-  Logger log("../../log/rnn_classify.csv");
   std::mt19937 engine(seed);
 
   DataProc proc(dim, inner_dim, class_n, M, noise_scale, engine());
 
-  std::vector<std::vector<T>> test_X;  //(M * test_N);
-  std::vector<int> test_Y;             //(M * test_N);
+  std::vector<std::vector<T>> test_X;
+  std::vector<int> test_Y;
   for (int m = 0; m < M; m++) {
     for (int n = 0; n < test_N; n++) {
       std::vector<T> res(dim);
@@ -155,98 +149,180 @@ int main() {
     }
   }
 
-  auto rnn = std::make_unique<custom::RNN>(batch, dim, 10);
-  auto out = std::make_unique<linear::Layer>(*rnn, class_n);
-  auto soft = std::make_unique<act::SoftMax>(*out);
+  resource::Param rnn_w(dim * dim), rnn_b(dim);
+  resource::Param out_w(dim * class_n), out_b(class_n);
 
+  model::Composite model;
   {
-    std::normal_distribution<> dist(0.0, weight_beta / std::sqrt(rnn->n));
+    auto rnn = std::make_unique<model::RNN>(rnn_t, rnn_w, rnn_b);
+    auto out = std::make_unique<model::Affine>(*rnn, out_w, out_b);
+    auto soft = std::make_unique<model::SoftMax>(*out);
 
-    std::fill_n(rnn->weight.get(), rnn->weight_size(), T(0));
-    for (int i = 0; i < rnn->n; i++)
-      rnn->weight[i * rnn->n + i] = (1 - weight_eps) * T(1);
-    for (int i = 0; i < rnn->weight_size(); i++)
-      rnn->weight[i] += weight_eps * dist(engine);
+    {
+      std::normal_distribution<> dist(0.0, weight_beta / std::sqrt(rnn->n));
 
-    std::fill_n(rnn->bias.get(), rnn->bias_size(), T(0));
+      std::fill_n(rnn->w.v(), rnn->w.size, T(0));
+      for (int i = 0; i < rnn->n; i++)
+        rnn->w._v[i * rnn->n + i] = (1 - weight_eps) * T(1);
+      for (int i = 0; i < rnn->w.size; i++)
+        rnn->w._v[i] += weight_eps * dist(engine);
+
+      std::fill_n(rnn->b.v(), rnn->b.size, T(0));
+    }
+    affine_normal(*out, out_ro, engine());
+
+    model.add(down_cast<model::ModelBase>(std::move(rnn)));
+    model.add(down_cast<model::ModelBase>(std::move(out)));
+    model.add(down_cast<model::ModelBase>(std::move(soft)));
   }
-  out->normal(out_ro, engine());
 
-  opt::RMSProp optimizer(opt_lr, opt_beta);
-  Model<decltype(optimizer)> model(optimizer);
-  model.add_layer(std::move(rnn));
-  model.add_layer(std::move(out));
-  model.add_layer(std::move(soft));
+  {  // train
+    policy::RMSProp optimizer(opt_lr, opt_beta);
+    optimizer.add_target(rnn_w, rnn_b, out_w, out_b);
 
-  CrossEntropy metrics(batch, class_n);
+    loss_func::CrossEntropy metric(class_n);
+    lr::ReduceOnPleatou<decltype(optimizer)> scheduler(optimizer, patience,
+                                                       0.5);
+    T score;
 
-  auto eval_test = [&]() {
-    T metric_score = 0;
-    int correct = 0, N = 0;
-    for (int e = 0; e < test_X.size() / batch; e++) {
+    auto nn = model.create(batch);
+    auto met = metric.create(batch);
+
+    auto eval_test = [&]() {
+      T metric_score = 0;
+      Acc accuracy;
+      for (int e = 0; e < test_X.size() / batch; e++) {
+        for (int b = 0; b < batch; b++) {
+          std::copy_n(test_X[e * batch + b].data(), dim,
+                      &(nn->input())[b * dim]);
+          met->_correct[b] = test_Y[e * batch + b];
+        }
+        nn->reset();
+        met->reset();
+
+        nn->forward(met->input());
+        met->forward(&score);
+
+        metric_score += score;
+        for (int b = 0; b < batch; b++) {
+          int y_act = argmax_n(&met->input()[b * class_n], class_n);
+          int y_true = met->_correct[b];
+
+          accuracy.step(y_act == y_true);
+        }
+      }
+      metric_score /= test_X.size() / batch;
+
+      return std::tuple<T, T>(metric_score, accuracy.result());
+    };
+
+    Logger log("../../log/rnn_classify.csv");
+
+    const int epochs = 96000;
+    const int eval = 100;
+    for (int e = 0; e < epochs; e++) {
       int batch_Y[batch];
       for (int b = 0; b < batch; b++) {
-        std::copy_n(test_X[e * batch + b].data(), dim, &(model.x())[b * dim]);
-        batch_Y[b] = test_Y[e * batch + b];
+        met->_correct[b] = proc.random_gen(&(nn->input())[b * dim]);
       }
-      model.reset();
-      model.forward();
+      nn->reset();
+      met->reset();
 
-      metric_score += metrics(model.y(), batch_Y);
-      for (int b = 0; b < batch; b++) {
-        int y_act = argmax_n(&model.y()[b * class_n], class_n);
-        int y_true = batch_Y[b];
+      nn->forward(met->input());
+      met->forward(&score);
 
-        if (y_act == y_true) correct++;
-        N++;
+      if (e % eval == 0) {
+        T batch_score = score;
+        T test_score, test_acc;
+        std::tie(test_score, test_acc) = eval_test();
+
+        printf(
+            "%d: lr = %lf, batch_score = %lf, test_score = "
+            "%lf, "
+            "test_acc = %lf\n",
+            e, scheduler.current_lr(), batch_score, test_score, test_acc);
+        log.print("%d,%f,%f,%f\n", e, batch_score, test_score, test_acc);
+
+        if (scheduler.current_lr() < 1e-7 || test_score < 1e-7) break;
+        if (scheduler.step(test_score)) {
+          printf("learning late halfed\n");
+        }
+      }
+      met->backward();
+      nn->backward(met->input());
+
+      optimizer.update();
+    }
+  }
+
+  {
+    const int span = rnn_t * 5;
+    std::vector<std::vector<std::vector<T>>> snapshots(
+        span, std::vector<std::vector<T>>());
+
+    {
+      auto _affine = std::make_unique<model::Affine>(rnn_w, rnn_b);
+      auto _tanh = std::make_unique<model::Act<c1func::Tanh>>(*_affine);
+
+      auto affine = _affine->create(batch);
+      auto tanh = _tanh->create(batch);
+      std::vector<T> input(batch * dim);
+
+      auto reset = [&]() { std::fill_n(affine->input(), batch * dim, T(0)); };
+      auto set_input = [&]() {
+        affine->forward(tanh->input());
+        for (int i = 0; i < batch * dim; i++) {
+          tanh->input()[i] += input[i];
+        }
+        tanh->forward(affine->input());
+      };
+      auto forward = [&]() {
+        affine->forward(tanh->input());
+        tanh->forward(affine->input());
+      };
+
+      for (int e = 0; e < test_X.size() / batch; e++) {
+        for (int b = 0; b < batch; b++) {
+          std::copy_n(test_X[e * batch + b].data(), dim, &input[b * dim]);
+        }
+        reset();
+        set_input();
+
+        for (int t = 0; t < span; t++) {
+          forward();
+
+          for (int b = 0; b < batch; b++) {
+            std::vector<T> state(dim);
+            std::copy_n(&(affine->input())[b * dim], dim, state.data());
+            snapshots[t].emplace_back(state);
+          }
+        }
       }
     }
-    metric_score /= test_X.size();
 
-    return std::tuple<T, T>(metric_score, (T)correct / N);
-  };
-  auto accuracy = [&](int *batch_Y) {
-    int correct = 0, N = 0;
-    for (int b = 0; b < batch; b++) {
-      int y_act = argmax_n(&model.y()[b * class_n], class_n);
-      int y_true = batch_Y[b];
+    char dir[128];
+    std::sprintf(dir, "../../log/%d_%d_%d_%d", (int)weight_beta, inner_dim,
+                 patience, seed);
+    mkdir(dir, 0777);
+    for (int t = 0; t < span; t++) {
+      char path[256];
 
-      if (y_act == y_true) correct++;
-      N++;
-    }
-    return (T)correct / N;
-  };
+      std::sprintf(path, "%s/%d.csv", dir, t + 1);
+      Logger log(path);
 
-  ReduceOnPleatou<decltype(optimizer)> scheduler(model, patience, 0.5);
-
-  const int epochs = 1000000;
-  const int eval = 100;
-  for (int e = 0; e < epochs; e++) {
-    int batch_Y[batch];
-    for (int b = 0; b < batch; b++) {
-      batch_Y[b] = proc.random_gen(&(model.x())[b * dim]);
-    }
-    model.reset();
-    model.forward();
-    if (e % eval == 0) {
-      T batch_score = metrics(model.y(), batch_Y);
-      T batch_acc = accuracy(batch_Y);
-      T test_score, test_acc;
-      std::tie(test_score, test_acc) = eval_test();
-
-      printf(
-          "%d: lr = %lf, batch_score = %lf, batch_acc = %lf, test_score = %lf, "
-          "test_acc = %lf\n",
-          e, model.opts[0]->alpha, batch_score, batch_acc, test_score,
-          test_acc);
-      log.print("%d,%f,%f,%f\n", e, batch_score, test_score, test_acc);
-
-      if (scheduler.step(test_score)) {
-        printf("learning late halfed\n");
+      for (auto &v : snapshots[t]) {
+        log.print("%f", v[0]);
+        for (int i = 1; i < v.size(); i++) log.print(",%f", v[i]);
+        log.print("\n");
       }
     }
-    metrics.d(model.y(), batch_Y, model.y());
-    model.backward();
-    model.update();
+    {
+      char path[256];
+      std::sprintf(path, "%s/labels.csv", dir);
+      Logger log(path);
+      for (auto &label : test_Y) {
+        log.print("%d\n", label);
+      }
+    }
   }
 }

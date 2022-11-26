@@ -27,6 +27,7 @@ class Logger {
   void print(const char *format, Args const &...args) {
     std::fprintf(file, format, args...);
   }
+  void print(const char *format) { std::fprintf(file, "%s", format); }
 
   std::string path;
   FILE *file;

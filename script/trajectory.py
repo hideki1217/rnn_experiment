@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 import parse
+from PIL import Image
 
 savedir = Path(R"tmp/trajectory")
 if not savedir.exists():
@@ -63,4 +64,19 @@ for param, datas in param_dict.items():
         
         fig.savefig(save/f"{t}.png")
         plt.close()
+
+# make gif
+for folder in filter(lambda x: x.is_dir(), savedir.iterdir()):
+    pictures=[]
+    for path in filter(lambda x: re.match(R"[0-9]*\.png", x.name), folder.iterdir()):
+        (time, )=parse.parse("{:d}.png", path.name)
+        img = Image.open(path)
+        pictures.append((time, img))
+    pictures = list(map(lambda x: x[1], sorted(pictures)))
+    pictures[0].save(folder.parent / f'{folder.name}.gif',
+                    save_all=True, 
+                    append_images=pictures[1:], 
+                    optimize=True, 
+                    duration=500, 
+                    loop=0)
         

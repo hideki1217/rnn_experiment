@@ -32,12 +32,15 @@ struct Param {
 namespace dataproc {}
 
 namespace model {
-class LayerBase {
+class Evaluable {
  public:
   virtual void reset() {}
   virtual void forward(T* y) = 0;
-  virtual void backward(const T* dy) = 0;
   virtual T* input() = 0;
+};
+class LayerBase : public Evaluable {
+ public:
+  virtual void backward(const T* dy) = 0;
 };
 
 class ModelBase {
@@ -45,6 +48,9 @@ class ModelBase {
   virtual int y_size() = 0;
   virtual int x_size() = 0;
   virtual std::unique_ptr<LayerBase> create(int batch) = 0;
+  virtual std::unique_ptr<Evaluable> create_for_eval(int batch) {
+    return down_cast<Evaluable>(create(batch));
+  };
 };
 
 class Affine : public ModelBase {

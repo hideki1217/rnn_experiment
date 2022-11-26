@@ -4,7 +4,10 @@
 
 namespace mynn {
 namespace model {
+template <typename F = mynn::c1func::Tanh>
 class RNN : public model::ModelBase {
+  using act_layer = typename Act<F>::Layer;
+
  public:
   RNN(int t, resource::Param& w, resource::Param& b)
       : n(b.size), t(t), w(w), b(b) {
@@ -13,8 +16,7 @@ class RNN : public model::ModelBase {
 
     for (int i = 0; i < t; i++) {
       affines.emplace_back(std::make_unique<model::Affine>(w, b, true));
-      acts.emplace_back(
-          std::make_unique<model::Act<c1func::Tanh>>(*affines.back()));
+      acts.emplace_back(std::make_unique<model::Act<F>>(*affines.back()));
     }
   }
 
@@ -64,11 +66,39 @@ class RNN : public model::ModelBase {
     std::vector<std::unique_ptr<model::LayerBase>> acts;
     std::unique_ptr<T[]> _x;
   };
+  struct OnlyEval : model::Evaluable {
+    OnlyEval(int b_n, RNN& model) : b_n(b_n), model(model) {
+      _x = std::make_unique<T[]>(b_n * model.n);
+
+      affine = dynamic_ptr_cast<Affine::Layer>(
+          model.affines[0]->create_for_eval(b_n));
+      act = dynamic_ptr_cast<act_layer>(model.acts[0]->create_for_eval(b_n));
+    }
+
+    void reset() { std::fill_n(affine->input(), b_n * model.n, T(0)); }
+    void forward(T* y) {
+      affine->forward(act->input());
+      for (int i = 0; i < b_n * model.n; i++) act->input()[i] += _x[i];
+      act->forward(affine->input());
+
+      std::copy_n(affine->input(), b_n * model.n, y);
+    }
+    T* input() { return _x.get(); }
+
+    int b_n;
+    RNN& model;
+    std::unique_ptr<Affine::Layer> affine;
+    std::unique_ptr<act_layer> act;
+    std::unique_ptr<T[]> _x;
+  };
 
   int y_size() { return n; };
   int x_size() { return n; };
   std::unique_ptr<model::LayerBase> create(int batch) {
     return std::unique_ptr<model::LayerBase>(new Layer(batch, *this));
+  }
+  std::unique_ptr<model::Evaluable> create_for_eval(int batch) {
+    return std::unique_ptr<model::Evaluable>(new OnlyEval(batch, *this));
   }
 
   int t, n;

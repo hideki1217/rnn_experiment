@@ -24,7 +24,7 @@ int main() {
   model::Composite model;
   {
     auto lay0 = std::make_unique<model::Affine>(w0, b0);
-    auto rnn = std::make_unique<model::RNN>(5, rnn_w, rnn_b);
+    auto rnn = std::make_unique<model::RNN<c1func::Tanh>>(5, rnn_w, rnn_b);
     auto lay1 = std::make_unique<model::Affine>(w1, b1);
     auto act1 = std::make_unique<model::SoftMax>(*lay1);
 

@@ -17,6 +17,10 @@ class Logger {
  public:
   Logger(std::string path) : path(path) {
     file = std::fopen(path.c_str(), "w");
+    if (file == nullptr) {
+      printf("Logger: cannot file open");
+      abort();
+    }
   }
   ~Logger() { std::fclose(file); }
   template <typename... Args>
@@ -121,6 +125,11 @@ class DataProc {
 };
 
 void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
+  char savedir[128];
+  std::sprintf(savedir, "../../log/%d_%d_%d_%d", (int)weight_beta, inner_dim,
+               patience, model_seed);
+  mkdir(savedir, 0777);
+
   const T weight_eps = 0.01;
   const T out_ro = 0.3;
   const T opt_lr = 0.001, opt_beta = 0.99;
@@ -153,7 +162,7 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
 
   model::Composite model;
   {
-    auto rnn = std::make_unique<model::RNN>(rnn_t, rnn_w, rnn_b);
+    auto rnn = std::make_unique<model::RNN<c1func::Tanh>>(rnn_t, rnn_w, rnn_b);
     auto out = std::make_unique<model::Affine>(*rnn, out_w, out_b);
     auto soft = std::make_unique<model::SoftMax>(*out);
 
@@ -215,7 +224,9 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
       return std::tuple<T, T>(metric_score, accuracy.result());
     };
 
-    Logger log("../../log/rnn_classify.csv");
+    auto log_path = std::string(savedir) + "/learning_log.csv";
+    Logger log(log_path);
+    log.print("epoch,lr,batch_score,test_score,teset_acc\n");
 
     const int epochs = 96000;
     const int eval = 100;
@@ -240,7 +251,8 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
             "%lf, "
             "test_acc = %lf\n",
             e, scheduler.current_lr(), batch_score, test_score, test_acc);
-        log.print("%d,%f,%f,%f\n", e, batch_score, test_score, test_acc);
+        log.print("%d,%f,%f,%f,%f\n", e, scheduler.current_lr(), batch_score,
+                  test_score, test_acc);
 
         if (scheduler.current_lr() < 1e-7 || test_score < 1e-7) break;
         if (scheduler.step(test_score)) {
@@ -260,51 +272,37 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
         span, std::vector<std::vector<T>>());
 
     {
-      auto _affine = std::make_unique<model::Affine>(rnn_w, rnn_b);
-      auto _tanh = std::make_unique<model::Act<c1func::Tanh>>(*_affine);
-
-      auto affine = _affine->create(batch);
-      auto tanh = _tanh->create(batch);
-      std::vector<T> input(batch * dim);
-
-      auto reset = [&]() { std::fill_n(affine->input(), batch * dim, T(0)); };
-      auto first_forward = [&]() {
-        affine->forward(tanh->input());
-        for (int i = 0; i < batch * dim; i++) {
-          tanh->input()[i] += input[i];
-        }
-        tanh->forward(affine->input());
-      };
-      auto forward = [&]() {
-        affine->forward(tanh->input());
-        tanh->forward(affine->input());
-      };
+      auto rnn = model.models[0]->create_for_eval(batch);
+      std::vector<T> y(batch * dim);
 
       for (int e = 0; e < test_X.size() / batch; e++) {
-        for (int b = 0; b < batch; b++) {
-          std::copy_n(test_X[e * batch + b].data(), dim, &input[b * dim]);
-        }
-        reset();
+        rnn->reset();
+
         for (int t = 0; t < span; t++) {
-          (t == 0) ? first_forward() : forward();
+          if (t == 0) {
+            for (int b = 0; b < batch; b++) {
+              std::copy_n(test_X[e * batch + b].data(), dim,
+                          &(rnn->input())[b * dim]);
+            }
+          } else {
+            std::fill_n(rnn->input(), batch * dim, T(0));
+          }
+
+          rnn->forward(y.data());
 
           for (int b = 0; b < batch; b++) {
             std::vector<T> state(dim);
-            std::copy_n(&(affine->input())[b * dim], dim, state.data());
+            std::copy_n(&y[b * dim], dim, state.data());
             snapshots[t].emplace_back(state);
           }
         }
       }
     }
 
-    char dir[128];
-    std::sprintf(dir, "../../log/%d_%d_%d_%d", (int)weight_beta, inner_dim,
-                 patience, model_seed);
-    mkdir(dir, 0777);
     for (int t = 0; t < span; t++) {
       char path[256];
 
-      std::sprintf(path, "%s/%d.csv", dir, t + 1);
+      std::sprintf(path, "%s/%d.csv", savedir, t + 1);
       Logger log(path);
 
       for (auto &v : snapshots[t]) {
@@ -315,7 +313,7 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
     }
     {
       char path[256];
-      std::sprintf(path, "%s/labels.csv", dir);
+      std::sprintf(path, "%s/labels.csv", savedir);
       Logger log(path);
       for (auto &label : test_Y) {
         log.print("%d\n", label);

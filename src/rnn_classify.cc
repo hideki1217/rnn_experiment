@@ -10,6 +10,7 @@
 #include "mynn.h"
 #include "mynn_custom.h"
 #include "mynn_util.h"
+#include "ryapunov.h"
 
 using namespace mynn;
 
@@ -185,6 +186,18 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
     model.add(down_cast<model::ModelBase>(std::move(soft)));
   }
 
+  const int spectoram_rank = 10;
+  const int spectoram_m = 1;
+  std::vector<std::tuple<int, std::vector<T>>> spectorams;
+  auto calc_spectoram = [&](int epoch) {
+    ryap::RNN rnn(dim);
+    std::copy_n(rnn_w.v(), dim * dim, rnn.weight.begin());
+    std::copy_n(rnn_b.v(), dim, rnn.bias.begin());
+
+    spectorams.emplace_back(std::make_tuple(
+        epoch, ryap::spectoram_n(std::move(rnn), spectoram_rank, spectoram_m)));
+  };
+
   {  // train
     policy::RMSProp optimizer(opt_lr, opt_beta);
     optimizer.add_target(rnn_w, rnn_b, out_w, out_b);
@@ -231,8 +244,8 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
 
     const int epochs = 96000;
     const int eval = 100;
+    const int spectoram = 10000;
     for (int e = 0; e < epochs; e++) {
-      int batch_Y[batch];
       for (int b = 0; b < batch; b++) {
         met->_correct[b] = proc.random_gen(&(nn->input())[b * dim]);
       }
@@ -255,15 +268,40 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
         log.print("%d,%f,%f,%f,%f\n", e, scheduler.current_lr(), batch_score,
                   test_score, test_acc);
 
-        if (scheduler.current_lr() < 1e-7 || test_score < 1e-7) break;
+        if (scheduler.current_lr() < 1e-7 || test_score < 1e-7) {
+          calc_spectoram(e);
+          break;
+        }
         if (scheduler.step(test_score)) {
           printf("learning late halfed\n");
         }
+      }
+      if (e % spectoram == 0) {
+        calc_spectoram(e);
       }
       met->backward();
       nn->backward(met->input());
 
       optimizer.update();
+    }
+  }
+
+  {
+    for (auto &res : spectorams) {
+      int epoch = std::get<0>(res);
+      std::vector<T> &spectoram = std::get<1>(res);
+
+      auto path =
+          std::string(savedir) + "/spectoram_" + std::to_string(epoch) + ".csv";
+      Logger log(path);
+
+      for (int i = 0; i < spectoram_m; i++) {
+        log.print("%f", spectoram[i * spectoram_rank]);
+        for (int j = 1; j < spectoram_rank; j++) {
+          log.print(",%f", spectoram[i * spectoram_rank + j]);
+        }
+        log.print("\n");
+      }
     }
   }
 

@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
+#include <memory>
 #include <random>
 #include <vector>
 
@@ -24,77 +26,6 @@ class F {
   void d(const T* x, T* dF);
   int x_size();
 };
-
-template <typename System>
-std::vector<T> spectoram(System&& target, int m = 1, T eps = 1e-4,
-                         int seed = 42) {
-  int n = target.x_size();
-  std::mt19937 engine(seed);
-  std::normal_distribution<> dist(0.0, 1.0);
-
-  std::vector<T> prev(n);
-  std::vector<T> eigval(n, 1e9);
-  auto is_converged = [&]() {
-    std::sort(eigval.begin(), eigval.end());
-    for (int i = 0; i < eigval.size(); i++) {
-      if (std::abs(eigval[i] - prev[i]) >= eps) return false;
-    }
-    return true;
-  };
-
-  std::vector<T> res(n * m);
-  for (int i = 0; i < m; i++) {
-    int t = 1;
-    std::vector<T> x_t(n);
-    for (auto& x : x_t) x = 10.0 * dist(engine);
-    auto W = identity(n);
-    // 一定時間ごとに、Wを定数倍小さくする処理のときの定数倍のlogを足し込んでおく
-    T normalize_logsum = T(0);
-    std::vector<T> W_t_W(n * n);
-    std::vector<T> df_t(n * n);
-    std::vector<T> work(n * 4);
-    const int lwork = work.size();
-    int info = 0;
-    do {
-      std::copy(eigval.begin(), eigval.end(), prev.begin());
-
-      target.d(x_t.data(), df_t.data());
-      cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, n, n, n, 1.0,
-                  df_t.data(), n, W.data(), n, 0.0, W_t_W.data(), n);
-      std::copy(W_t_W.begin(), W_t_W.end(), W.begin());
-
-      cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans, n, n, n, 1.0,
-                  W.data(), n, W.data(), n, 0.0, W_t_W.data(), n);
-
-      dsyev_("N", "U", &n, W_t_W.data(), &n, eigval.data(), work.data(), &lwork,
-             &info, n, n);
-      std::sort(eigval.begin(), eigval.end());
-      std::transform(eigval.begin(), eigval.end(), eigval.begin(),
-                     [](auto x) { return std::abs(x); });  // これはいいのか？
-      if (info) throw std::runtime_error("error: dsyev_()");
-
-      {  // 標準化
-        T _beta = 1.0 / std::accumulate(eigval.begin(), eigval.end(), T(0));
-        normalize_logsum += std::log(_beta);
-        for (int i = 0; i < n * n; i++) {
-          W[i] *= _beta;
-        }
-        for (int i = 0; i < n; i++) eigval[i] *= _beta;
-      }
-
-      for (int i = 0; i < eigval.size(); i++) {
-        eigval[i] = (normalize_logsum + std::log(eigval[i])) / (2 * t);
-      }
-
-      t++;
-      target(x_t.data(), x_t.data());
-    } while (!is_converged());
-
-    std::copy_n(eigval.data(), n, &res[i * n]);
-  }
-
-  return res;
-}
 
 template <typename System>
 std::vector<T> spectoram_n(System&& target, int rank_n, int m = 1, T eps = 1e-4,
@@ -178,6 +109,60 @@ std::vector<T> spectoram_n(System&& target, int rank_n, int m = 1, T eps = 1e-4,
 
     std::copy_n(eigval.data(), rank_n, &res[i * rank_n]);
   }
+
+  return res;
+}
+
+void qr(int n, double* a, double* q, double* r) {
+  double x[n];
+
+  for (int k = 0; k < n; k++) {
+    for (int i = 0; i < n; i++) x[i] = a[i * n + k];
+
+    for (int j = 0; j < k; j++) {
+      double t = 0.0;
+      for (int i = 0; i < n; i++) t += x[i] * q[i * n + j];
+      r[j * n + k] = t;
+      r[k * n + j] = 0.0;
+      for (int i = 0; i < n; i++) x[i] -= t * q[i * n + j];
+    }
+
+    double s = 0.0;
+    for (int i = 0; i < n; i++) s += x[i] * x[i];
+    s = std::sqrt(s);
+    r[k * n + k] = s;
+    for (int i = 0; i < n; i++) q[i * n + k] = x[i] / s;
+  }
+}
+
+template <typename System>
+std::vector<T> spectoram(System&& target, int time = 2000) {
+  auto n = target.x_size();
+
+  auto Q = std::make_unique<T[]>(n * n);
+  std::fill_n(Q.get(), n * n, T(0));
+  for (int i = 0; i < n; i++) Q[i * n + i] = T(1.0);
+
+  auto h = std::make_unique<T[]>(n);
+  std::fill_n(h.get(), n, T(0));
+
+  auto J = std::make_unique<T[]>(n * n);
+  auto R = std::make_unique<T[]>(n * n);
+  auto A = std::make_unique<T[]>(n * n);
+  std::vector<T> res(n, T(0));
+
+  int t;
+  for (t = 1; t <= time; t++) {
+    target.d(h.get(), J.get());
+    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, n, n, n, 1.0,
+                J.get(), n, Q.get(), n, 0.0, A.get(), n);
+    qr(n, A.get(), Q.get(), R.get());
+    for (int i = 0; i < n; i++) {
+      res[i] += std::log(R[i * n + i]);
+    }
+    target(h.get(), h.get());
+  }
+  for (auto& x : res) x = x / t;
 
   return res;
 }

@@ -19,7 +19,7 @@ class Logger {
   Logger(std::string path) : path(path) {
     file = std::fopen(path.c_str(), "w");
     if (file == nullptr) {
-      printf("Logger: cannot file open");
+      printf("Logger: cannot file open\n");
       abort();
     }
   }
@@ -130,7 +130,15 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
   char savedir[128];
   std::sprintf(savedir, "../../log/%d_%d_%d_%d", (int)weight_beta, inner_dim,
                patience, model_seed);
-  mkdir(savedir, 0777);
+  {  // もしすでに走らせたことのあるパラメータならもう走らせない。
+    struct stat st;
+    if (stat(savedir, &st) == 0) {
+      return;
+    }
+    mkdir(savedir, 0777);
+  }
+  std::printf("%d_%d_%d_%d\n", (int)weight_beta, inner_dim, patience,
+              model_seed);
 
   const T weight_eps = 0.01;
   const T out_ro = 0.3;
@@ -186,16 +194,14 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
     model.add(down_cast<model::ModelBase>(std::move(soft)));
   }
 
-  const int spectoram_rank = 10;
-  const int spectoram_m = 1;
   std::vector<std::tuple<int, std::vector<T>>> spectorams;
   auto calc_spectoram = [&](int epoch) {
     ryap::RNN rnn(dim);
     std::copy_n(rnn_w.v(), dim * dim, rnn.weight.begin());
     std::copy_n(rnn_b.v(), dim, rnn.bias.begin());
 
-    spectorams.emplace_back(std::make_tuple(
-        epoch, ryap::spectoram_n(std::move(rnn), spectoram_rank, spectoram_m)));
+    spectorams.emplace_back(
+        std::make_tuple(epoch, ryap::spectoram(std::move(rnn))));
   };
 
   {  // train
@@ -244,7 +250,7 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
 
     const int epochs = 96000;
     const int eval = 100;
-    const int spectoram = 10000;
+    const int spectoram = 1000;
     for (int e = 0; e < epochs; e++) {
       for (int b = 0; b < batch; b++) {
         met->_correct[b] = proc.random_gen(&(nn->input())[b * dim]);
@@ -287,21 +293,17 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
   }
 
   {
+    auto path = std::string(savedir) + "/spectoram.csv";
+    Logger log(path);
     for (auto &res : spectorams) {
       int epoch = std::get<0>(res);
       std::vector<T> &spectoram = std::get<1>(res);
 
-      auto path =
-          std::string(savedir) + "/spectoram_" + std::to_string(epoch) + ".csv";
-      Logger log(path);
-
-      for (int i = 0; i < spectoram_m; i++) {
-        log.print("%f", spectoram[i * spectoram_rank]);
-        for (int j = 1; j < spectoram_rank; j++) {
-          log.print(",%f", spectoram[i * spectoram_rank + j]);
-        }
-        log.print("\n");
+      log.print("%d", epoch);
+      for (auto &s : spectoram) {
+        log.print(",%f", s);
       }
+      log.print("\n");
     }
   }
 
@@ -368,8 +370,9 @@ int main() {
   std::vector<int> seeds;
   for (int i = 0; i < n; i++) seeds.emplace_back(engine());
 
-  for (auto seed : seeds) experiment(1, 2, 5, seed);
-  for (auto seed : seeds) experiment(20, 2, 5, seed);
-  for (auto seed : seeds) experiment(100, 2, 5, seed);
-  for (auto seed : seeds) experiment(250, 2, 5, seed);
+  for (auto inner_dim : {2, 200}) {
+    for (auto beta : {1, 20, 100, 250}) {
+      for (auto seed : seeds) experiment(beta, inner_dim, 5, seed);
+    }
+  }
 }

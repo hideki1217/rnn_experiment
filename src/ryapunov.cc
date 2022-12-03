@@ -1,8 +1,5 @@
 #include "ryapunov.h"
 
-#include <cblas.h>
-#include <lapack.h>
-
 #include <algorithm>
 #include <iostream>
 #include <memory>
@@ -32,7 +29,7 @@ int main() {
     }
   }
 
-  auto res = ryap::spectoram_n(std::move(target), 10, 1);
+  auto res = ryap::spectoram(std::move(target), 1000);
 
   for (int i = 0; i < std::min(10, n); i++) {
     std::cout << res[i] << " ";

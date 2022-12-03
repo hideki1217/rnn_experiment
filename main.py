@@ -10,7 +10,7 @@ if cp.returncode != 0:
     sys.exit(1)
 
 scripts = [
-    ["./script/trajectory.py", "./script/ED.py", "./script/learning_log.py"],
+    ["./script/trajectory.py", "./script/ED.py", "./script/learning_log.py", "./script/spectoram.py"],
 ]
 
 for script_group in scripts:

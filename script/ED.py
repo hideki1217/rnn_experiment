@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 import parse
 
-savedir = Path(R"tmp/ED")
+savedir = Path(R"result/ED")
 if not savedir.exists():
     savedir.mkdir()
 

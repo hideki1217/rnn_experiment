@@ -3,4 +3,5 @@ build/
 data/
 log/
 tmp/
+result/
 venv/

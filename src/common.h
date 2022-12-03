@@ -114,3 +114,23 @@ struct Acc {
   int correct;
   int n;
 };
+
+class Logger {
+ public:
+  Logger(std::string path) : path(path) {
+    file = std::fopen(path.c_str(), "w");
+    if (file == nullptr) {
+      printf("Logger: cannot file open\n");
+      abort();
+    }
+  }
+  ~Logger() { std::fclose(file); }
+  template <typename... Args>
+  void print(const char* format, Args const&... args) {
+    std::fprintf(file, format, args...);
+  }
+  void print(const char* format) { std::fprintf(file, "%s", format); }
+
+  std::string path;
+  FILE* file;
+};

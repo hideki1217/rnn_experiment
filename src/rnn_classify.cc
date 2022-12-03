@@ -1,3 +1,5 @@
+#include "rnn_classify.h"
+
 #include <sys/stat.h>
 
 #include <fstream>
@@ -13,118 +15,6 @@
 #include "ryapunov.h"
 
 using namespace mynn;
-
-class Logger {
- public:
-  Logger(std::string path) : path(path) {
-    file = std::fopen(path.c_str(), "w");
-    if (file == nullptr) {
-      printf("Logger: cannot file open\n");
-      abort();
-    }
-  }
-  ~Logger() { std::fclose(file); }
-  template <typename... Args>
-  void print(const char *format, Args const &...args) {
-    std::fprintf(file, format, args...);
-  }
-  void print(const char *format) { std::fprintf(file, "%s", format); }
-
-  std::string path;
-  FILE *file;
-};
-
-class DataProc {
- public:
-  DataProc(int dim, int inner_dim, int class_n, int cluster_n, T noise_scale,
-           int seed)
-      : dim(dim),
-        inner_dim(inner_dim),
-        class_n(class_n),
-        cluster_n(cluster_n),
-        engine(std::mt19937(seed)),
-        noise_scale(noise_scale),
-        noise(std::normal_distribution<>(0.0, noise_scale)),
-        rand(std::uniform_int_distribution<>(0, cluster_n - 1)) {
-    means = std::make_unique<T[]>(cluster_n * inner_dim);
-    labels = std::make_unique<int[]>(cluster_n);
-    w = std::make_unique<T[]>(dim * inner_dim);
-
-    init_w();
-    init_means();
-  }
-
-  int random_gen(T *res) {
-    int c = rand(engine);  // std::rand() % cluster_n;
-    return gen(res, c);
-  }
-
-  int gen(T *res, int c) {
-    T inner[inner_dim];
-    for (int i = 0; i < inner_dim; i++) {
-      inner[i] = means[c * inner_dim + i] + noise(engine);
-    }
-
-    for (int i = 0; i < dim; i++) {
-      T reg = 0;
-      for (int j = 0; j < inner_dim; j++) {
-        reg += w[i * inner_dim + j] * inner[j];
-      }
-      res[i] = reg;
-    }
-
-    return labels[c];
-  }
-
-  int dim, inner_dim, class_n, cluster_n;
-  T noise_scale;
-  std::mt19937 engine;
-  std::normal_distribution<T> noise;
-  std::uniform_int_distribution<int> rand;
-  std::unique_ptr<T[]> means;
-  std::unique_ptr<int[]> labels;
-  std::unique_ptr<T[]> w;
-
- private:
-  void init_w() {
-    auto tmp = std::make_unique<T[]>(inner_dim * dim);
-    random_orthogonal(inner_dim, dim, tmp.get(), engine);
-    transpose(inner_dim, dim, tmp.get(), w.get());
-  }
-  void init_means() {
-    T minimam =
-        noise_scale * 10;  // 標準偏差の5倍の距離は保つ　外に出る確率が1e-7
-
-    T tmp[inner_dim];
-    const T L = 4.0;
-    std::uniform_real_distribution<> unif(-L / 2, L / 2);
-    for (int c = 0; c < cluster_n; c++) {
-      bool flag = true;
-      while (flag) {
-        // uniform sample from inner_dim's hypercube
-        for (auto &x : tmp) x = unif(engine);
-
-        flag = false;
-
-        for (int i = 0; i < c; i++) {
-          T distance = 0;
-          for (int j = 0; j < inner_dim; j++) {
-            distance += std::pow(means[i * inner_dim + j] - tmp[j], 2.0);
-          }
-          distance = std::sqrt(distance);
-
-          if (distance <= minimam) {
-            flag = true;
-            break;
-          }
-        }
-      }
-
-      std::copy_n(tmp, inner_dim, &means[c * inner_dim]);
-      labels[c] = c % class_n;
-    }
-  }
-};
 
 void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
   char savedir[128];
@@ -149,6 +39,7 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
   const int M = 60;
   const int test_N = batch;
   const int rnn_t = 10;
+  const int iteration = 800;
   const int data_seed = 42;
 
   std::mt19937 engine(model_seed);
@@ -248,47 +139,47 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
     Logger log(log_path);
     log.print("epoch,lr,batch_score,test_score,teset_acc\n");
 
-    const int epochs = 96000;
-    const int eval = 100;
-    const int spectoram = 1000;
-    for (int e = 0; e < epochs; e++) {
-      for (int b = 0; b < batch; b++) {
-        met->_correct[b] = proc.random_gen(&(nn->input())[b * dim]);
+    const int max_epochs = 50;
+    const int spectoram = 5;
+    for (int e = 0; e < max_epochs; e++) {
+      for (int i = 0; i < iteration; i++) {
+        for (int b = 0; b < batch; b++) {
+          met->_correct[b] = proc.random_gen(&(nn->input())[b * dim]);
+        }
+
+        nn->reset();
+        met->reset();
+
+        nn->forward(met->input());
+        met->forward(&score);
+
+        met->backward();
+        nn->backward(met->input());
+
+        optimizer.update();
       }
-      nn->reset();
-      met->reset();
 
-      nn->forward(met->input());
-      met->forward(&score);
+      T batch_score = score;
+      T test_score, test_acc;
+      std::tie(test_score, test_acc) = eval_test();
+      printf(
+          "%d(%d): lr = %lf, batch_score = %lf, test_score = "
+          "%lf, "
+          "test_acc = %lf\n",
+          e, e * iteration * batch, scheduler.current_lr(), batch_score, test_score, test_acc);
+      log.print("%d,%f,%f,%f,%f\n", e, scheduler.current_lr(), batch_score,
+                test_score, test_acc);
 
-      if (e % eval == 0) {
-        T batch_score = score;
-        T test_score, test_acc;
-        std::tie(test_score, test_acc) = eval_test();
-
-        printf(
-            "%d: lr = %lf, batch_score = %lf, test_score = "
-            "%lf, "
-            "test_acc = %lf\n",
-            e, scheduler.current_lr(), batch_score, test_score, test_acc);
-        log.print("%d,%f,%f,%f,%f\n", e, scheduler.current_lr(), batch_score,
-                  test_score, test_acc);
-
-        if (scheduler.current_lr() < 1e-7 || test_score < 1e-7) {
-          calc_spectoram(e);
-          break;
-        }
-        if (scheduler.step(test_score)) {
-          printf("learning late halfed\n");
-        }
+      if (scheduler.step(test_score)) {
+        printf("learning late halfed\n");
+      }
+      if (scheduler.current_lr() < 1e-7 || test_score < 1e-7) {
+        calc_spectoram(e);
+        break;
       }
       if (e % spectoram == 0) {
         calc_spectoram(e);
       }
-      met->backward();
-      nn->backward(met->input());
-
-      optimizer.update();
     }
   }
 

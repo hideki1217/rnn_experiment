@@ -9,7 +9,7 @@ from sklearn.decomposition import PCA
 import parse
 from PIL import Image
 
-savedir = Path(R"tmp/trajectory")
+savedir = Path(R"result/trajectory")
 if not savedir.exists():
     savedir.mkdir()
 

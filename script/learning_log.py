@@ -5,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import parse
 
-savedir = Path(R"tmp/learning_log")
+savedir = Path(R"result/learning_log")
 if not savedir.exists():
     savedir.mkdir()
 

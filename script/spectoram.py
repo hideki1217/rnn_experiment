@@ -5,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import parse
 
-savedir = Path(R"tmp/spectoram")
+savedir = Path(R"result/spectoram")
 if not savedir.exists():
     savedir.mkdir()
 

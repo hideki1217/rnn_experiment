@@ -35,7 +35,8 @@ for param, datas in param_dict.items():
     fig, ax = plt.subplots()
     fig.suptitle(f"{param_stamp}")
 
-    
+    x = None
+    EDss = []
     for i, (seed, data, labels) in enumerate(datas):
         EDs = []
         label_set = set(labels)
@@ -46,7 +47,16 @@ for param, datas in param_dict.items():
             EDs.append((t, ED))
         
         EDs = np.array(sorted(EDs)).T
-        ax.plot(EDs[0], EDs[1])
+        if x is None:
+            x = EDs[0]
+        else:
+            assert np.array_equal(x, EDs[0])
+        EDss.append(EDs[1])
+    EDss = np.array(EDss)
+
+    for i in range(EDss.shape[0]):
+        ax.plot(x, EDss[i], alpha=0.5)
+    ax.plot(x, EDss.mean(axis=0))
 
     plt.xlabel("time")
     plt.ylabel("ED(t)")

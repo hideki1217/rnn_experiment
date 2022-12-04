@@ -27,8 +27,14 @@ for param in param_dict:
     fig, axes = plt.subplots(n, 1, sharex="col", figsize=(6, 3*n))
     for df in all_df:
         for i, s in enumerate(df.columns):
-            axes[i].plot(df.index, df[s])
+            axes[i].plot(df.index, df[s], alpha=0.5)
     for i, s in enumerate(all_df[0].columns):
+        x = None
+        for df in all_df:
+            x = df[s] if x is None else x + df[s]
+        x /= len(all_df)
+        axes[i].plot(x.index, x.values)
+        
         axes[i].set_ylabel(s)
     plt.xlabel("No. of training samples")
     plt.tight_layout()

@@ -1,7 +1,9 @@
 #include "rnn_classify.h"
 
+#include <cblas.h>
 #include <sys/stat.h>
 
+#include <cassert>
 #include <fstream>
 #include <iostream>
 #include <random>
@@ -37,7 +39,7 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
   const int class_n = 2, dim = 200;
   const T noise_scale = 0.02;
   const int M = 60;
-  const int test_N = batch;
+  const int test_N = batch * 3;
   const int rnn_t = 10;
   const int iteration = 800;
   const int data_seed = 42;
@@ -95,6 +97,13 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
         std::make_tuple(epoch, ryap::spectoram(std::move(rnn))));
   };
 
+  std::vector<std::tuple<int, T, T, T, T>> learning_log;
+  auto report_learning_log = [&](int samples, T lr, T batch_loss, T test_loss,
+                                 T test_acc) {
+    learning_log.emplace_back(
+        std::make_tuple(samples, lr, batch_loss, test_loss, test_acc));
+  };
+
   {  // train
     policy::RMSProp optimizer(opt_lr, opt_beta);
     optimizer.add_target(rnn_w, rnn_b, out_w, out_b);
@@ -102,15 +111,16 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
     loss_func::CrossEntropy metric(class_n);
     lr::ReduceOnPleatou<decltype(optimizer)> scheduler(optimizer, patience,
                                                        0.5);
-    T score;
+    T loss;
 
     auto nn = model.create(batch);
     auto met = metric.create(batch);
 
     auto eval_test = [&]() {
-      T metric_score = 0;
+      T total_loss = 0;
       Acc accuracy;
-      for (int e = 0; e < test_X.size() / batch; e++) {
+      const int epochs = test_X.size() / batch;
+      for (int e = 0; e < epochs; e++) {
         for (int b = 0; b < batch; b++) {
           std::copy_n(test_X[e * batch + b].data(), dim,
                       &(nn->input())[b * dim]);
@@ -120,9 +130,9 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
         met->reset();
 
         nn->forward(met->input());
-        met->forward(&score);
+        met->forward(&loss);
 
-        metric_score += score;
+        total_loss += loss;
         for (int b = 0; b < batch; b++) {
           int y_act = argmax_n(&met->input()[b * class_n], class_n);
           int y_true = met->_correct[b];
@@ -130,18 +140,15 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
           accuracy.step(y_act == y_true);
         }
       }
-      metric_score /= test_X.size() / batch;
+      total_loss /= epochs;
 
-      return std::tuple<T, T>(metric_score, accuracy.result());
+      return std::tuple<T, T>(total_loss, accuracy.result());
     };
 
-    auto log_path = std::string(savedir) + "/learning_log.csv";
-    Logger log(log_path);
-    log.print("epoch,lr,batch_score,test_score,teset_acc\n");
-
-    const int max_epochs = 50;
-    const int spectoram = 5;
+    const int max_epochs = 60;
+    std::vector<int> spectoram({0, 1, 4, 14, 29, 59});
     for (int e = 0; e < max_epochs; e++) {
+      T total_loss = 0;
       for (int i = 0; i < iteration; i++) {
         for (int b = 0; b < batch; b++) {
           met->_correct[b] = proc.random_gen(&(nn->input())[b * dim]);
@@ -151,35 +158,49 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
         met->reset();
 
         nn->forward(met->input());
-        met->forward(&score);
+        met->forward(&loss);
+
+        total_loss += loss;
 
         met->backward();
         nn->backward(met->input());
 
         optimizer.update();
       }
+      T batch_loss = total_loss / iteration;
+      scheduler.step(batch_loss);
 
-      T batch_score = score;
-      T test_score, test_acc;
-      std::tie(test_score, test_acc) = eval_test();
-      printf(
-          "%d(%d): lr = %lf, batch_score = %lf, test_score = "
-          "%lf, "
-          "test_acc = %lf\n",
-          e, e * iteration * batch, scheduler.current_lr(), batch_score, test_score, test_acc);
-      log.print("%d,%f,%f,%f,%f\n", e, scheduler.current_lr(), batch_score,
-                test_score, test_acc);
+      {  // report current state
+        T current_lr = scheduler.current_lr();
+        T test_loss, test_acc;
+        std::tie(test_loss, test_acc) = eval_test();
+        report_learning_log((e + 1) * iteration * batch, current_lr, batch_loss,
+                            test_loss, test_acc);
 
-      if (scheduler.step(test_score)) {
-        printf("learning late halfed\n");
+        printf(
+            "%d(%d): lr = %lf, batch_loss = %lf, test_loss = "
+            "%lf, "
+            "test_acc = %lf\n",
+            e, e * iteration * batch, current_lr, batch_loss, test_loss,
+            test_acc);
       }
-      if (scheduler.current_lr() < 1e-7 || test_score < 1e-7) {
-        calc_spectoram(e);
-        break;
-      }
-      if (e % spectoram == 0) {
+      if (std::find(spectoram.begin(), spectoram.end(), e) != spectoram.end()) {
         calc_spectoram(e);
       }
+    }
+  }
+
+  {  // save learning log
+    auto log_path = std::string(savedir) + "/learning_log.csv";
+    Logger log(log_path);
+    log.print("epoch,lr,batch_loss,test_loss,teset_acc\n");
+    for (auto x : learning_log) {
+      int samples;
+      T lr, batch_loss, test_loss, test_acc;
+      std::tie(samples, lr, batch_loss, test_loss, test_acc) = x;
+
+      log.print("%d,%f,%f,%f,%f\n", samples, lr, batch_loss, test_loss,
+                test_acc);
     }
   }
 
@@ -254,16 +275,18 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
   }
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+  openblas_set_num_threads(8);
+
   std::mt19937 engine(42);
   const int n = 10;
 
   std::vector<int> seeds;
   for (int i = 0; i < n; i++) seeds.emplace_back(engine());
 
-  for (auto inner_dim : {2, 200}) {
-    for (auto beta : {1, 20, 100, 250}) {
-      for (auto seed : seeds) experiment(beta, inner_dim, 5, seed);
-    }
-  }
+  assert(argc == 3);
+  auto g_radius = std::stoi(argv[1]);
+  auto inner_dim = std::stoi(argv[2]);
+
+  for (auto seed : seeds) experiment(g_radius, inner_dim, 5, seed);
 }

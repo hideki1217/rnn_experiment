@@ -491,21 +491,24 @@ namespace lr {
 template <typename Opt>
 class ReduceOnPleatou {
  public:
-  ReduceOnPleatou(Opt& optimizer, int patience, T lr_ratio)
-      : optimizer(optimizer), patience(patience), lr_ratio(lr_ratio) {}
+  ReduceOnPleatou(Opt& optimizer, int patience, T lr_ratio, T threshold = 1e-7)
+      : optimizer(optimizer),
+        patience(patience),
+        lr_ratio(lr_ratio),
+        threshold(threshold) {}
 
-  bool step(T score) {
-    if (score >= min_score) {
+  bool step(T loss) {
+    if (loss >= base_loss - threshold) {
       count++;
       if (count >= patience) {
-        min_score = score;
+        base_loss = loss;
         count = 0;
 
         optimizer.alpha *= lr_ratio;
         return true;
       }
     } else {
-      min_score = score;
+      base_loss = loss;
       count = 0;
     }
     return false;
@@ -514,10 +517,11 @@ class ReduceOnPleatou {
 
   int patience;
   T lr_ratio;
+  T threshold;
 
  private:
   Opt& optimizer;
-  T min_score = 1e10;
+  T base_loss = 1e10;
   int count = 0;
 };
 }  // namespace lr

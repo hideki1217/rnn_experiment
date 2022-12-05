@@ -6,10 +6,10 @@ import itertools
 
 
 process_n = 4
-target = "./rnn_classify"
+target = "./exp0"
 g_radius = [1, 20, 100, 250]
 inner_dim = [2, 200]
-patience = [2, 3, 5]
+patience = [1, 2, 3, 5]
 def f(param):
     param = tuple(map(str, param))
     cp = subprocess.run([target, *param], cwd=Path(__file__).parent / "build" / "src")

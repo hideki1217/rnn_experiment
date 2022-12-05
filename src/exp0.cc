@@ -27,7 +27,6 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
     if (stat(savedir, &st) == 0) {
       return;
     }
-    mkdir(savedir, 0777);
   }
   std::printf("%d_%d_%d_%d\n", (int)weight_beta, inner_dim, patience,
               model_seed);
@@ -189,6 +188,9 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
       }
     }
   }
+
+  // start save logs
+  mkdir(savedir, 0777);
 
   {  // save learning log
     auto log_path = std::string(savedir) + "/learning_log.csv";

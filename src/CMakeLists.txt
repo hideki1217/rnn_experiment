@@ -13,7 +13,7 @@ add_executable(rnn_mnist
     )
 target_link_libraries(rnn_mnist openblas pthread)
 
-add_executable(rnn_classify
-    rnn_classify.cc
+add_executable(exp0
+    exp0.cc
     )
-target_link_libraries(rnn_classify openblas pthread gfortran)
+target_link_libraries(exp0 openblas pthread gfortran)

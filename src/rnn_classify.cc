@@ -279,14 +279,15 @@ int main(int argc, char *argv[]) {
   openblas_set_num_threads(8);
 
   std::mt19937 engine(42);
-  const int n = 10;
+  const int n = 30;
 
   std::vector<int> seeds;
   for (int i = 0; i < n; i++) seeds.emplace_back(engine());
 
-  assert(argc == 3);
+  assert(argc == 4);
   auto g_radius = std::stoi(argv[1]);
   auto inner_dim = std::stoi(argv[2]);
+  auto patience = std::stoi(argv[3]);
 
-  for (auto seed : seeds) experiment(g_radius, inner_dim, 5, seed);
+  for (auto seed : seeds) experiment(g_radius, inner_dim, patience, seed);
 }

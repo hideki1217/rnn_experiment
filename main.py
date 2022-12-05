@@ -9,6 +9,7 @@ process_n = 4
 target = "./rnn_classify"
 g_radius = [1, 20, 100, 250]
 inner_dim = [2, 200]
+patience = [2, 3, 5]
 def f(param):
     param = tuple(map(str, param))
     cp = subprocess.run([target, *param], cwd=Path(__file__).parent / "build" / "src")
@@ -17,7 +18,7 @@ def f(param):
     return cp.returncode
 
 with Pool(process_n) as p:
-    res = p.map(f, itertools.product(g_radius, inner_dim))
+    res = p.map(f, itertools.product(g_radius, inner_dim, patience))
 
     if all(map(lambda x: x == 0, res)):
         print("success!!")

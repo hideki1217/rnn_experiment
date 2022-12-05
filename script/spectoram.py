@@ -25,11 +25,28 @@ for param, path in map(lambda x: (_parse_param(x.parent), x), paths):
 for param, ls in param_dict.items():
     stamp = _param_stamp(param)
 
-    fig, ax = plt.subplots()
+    n = 5
+    ncols = n
+    nrows = 1
+    fig, axes = plt.subplots(ncols=ncols, nrows=nrows, figsize=(3 * n, 6), sharey="row")
+    xs = [None] * n
     for df in map(lambda x: pd.read_csv(x, index_col=0), ls):
-        maxs = df.max(axis=1)
-        ax.plot(maxs.index, maxs.values)
-    ax.set_xlabel("epoch")
-    ax.set_ylabel("max lyapunov exponent")
-    ax.set_title(stamp)
+        for i in range(n):
+            ax = axes[i]
+            x = df.iloc[:, i]
+            ax.plot(x.index, x.values, alpha=0.5)
+
+            xs[i] = x if xs[i] is None else xs[i] + x
+    
+    for i in range(n):
+        x = xs[i] / len(ls)
+        axes[i].plot(x.index, x.values)
+
+    for i in range(n):
+        ax = axes[i]
+        ax.set_xlabel("epoch")
+        ax.set_ylabel(f"{i}th lyapunov exponent")
+    plt.suptitle(stamp)
+    plt.tight_layout()
     fig.savefig(savedir/ f"{stamp}.png")
+    plt.clf()

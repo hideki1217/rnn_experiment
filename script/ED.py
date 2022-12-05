@@ -18,8 +18,7 @@ for data in datadir.glob(R"*_*_*_*"):
     w_beta, inner_dim, patience, seed = parse.parse(R"{:d}_{:d}_{:d}_{:d}", data.name)
     def _f(path):
         (time,) = parse.parse(R"{:d}.csv", path.name) 
-        state = pd.read_csv(path, header=None)
-        return time, state
+        return time, path
 
     labels = pd.read_csv(data/"labels.csv", header=None).values.reshape((-1,))
     data = [_f(csv) for csv in filter(lambda x: re.match(R"[0-9]*\.csv", x.name), data.iterdir())]
@@ -28,6 +27,10 @@ for data in datadir.glob(R"*_*_*_*"):
 
 for param, datas in param_dict.items():
     param_stamp = f"{param[0]}_{param[1]}_{param[2]}"
+
+    datas = [(seed, 
+              [(time, pd.read_csv(path, header=None)) for time, path in data], 
+              labels) for seed, data, labels in datas]
 
     n = len(datas)
     span = len(datas[0][1])

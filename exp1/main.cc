@@ -1,9 +1,8 @@
-#include "rnn_classify.h"
-
 #include <cblas.h>
 #include <sys/stat.h>
 
 #include <cassert>
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <random>
@@ -11,17 +10,21 @@
 #include <vector>
 
 #include "common.h"
+#include "lyapunov.h"
 #include "mynn.h"
 #include "mynn_custom.h"
 #include "mynn_util.h"
-#include "ryapunov.h"
+#include "rnn_classify.h"
 
 using namespace mynn;
 
+#define PRINT_LEARNING_LOG 0
+#define SKIP_SPECTORAM 0
+
 void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
   char savedir[128];
-  std::sprintf(savedir, "../../log/%d_%d_%d_%d", (int)weight_beta, inner_dim,
-               patience, model_seed);
+  std::sprintf(savedir, "../../exp1/log/%d_%d_%d_%d", (int)weight_beta,
+               inner_dim, patience, model_seed);
   {  // もしすでに走らせたことのあるパラメータならもう走らせない。
     struct stat st;
     if (stat(savedir, &st) == 0) {
@@ -45,7 +48,14 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
 
   std::mt19937 engine(model_seed);
 
-  DataProc proc(dim, inner_dim, class_n, M, noise_scale, data_seed);
+  // 選択行列
+  auto w_in = std::make_unique<T[]>(dim * inner_dim);
+  std::fill_n(w_in.get(), dim * inner_dim, T(0));
+  for (int i = 0; i < std::min(dim, inner_dim); i++) {
+    w_in[i * inner_dim + i] = T(1);
+  }
+  LinEmbed proc(dim, std::move(w_in), inner_dim, class_n, M, noise_scale,
+                data_seed);
 
   std::vector<std::vector<T>> test_X;
   std::vector<int> test_Y;
@@ -141,7 +151,7 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
       }
       total_loss /= epochs;
 
-      return std::tuple<T, T>(total_loss, accuracy.result());
+      return std::make_tuple(total_loss, accuracy.result());
     };
 
     const int max_epochs = 60;
@@ -176,15 +186,19 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
         report_learning_log((e + 1) * iteration * batch, current_lr, batch_loss,
                             test_loss, test_acc);
 
+#if PRINT_LEARNING_LOG
         printf(
             "%d(%d): lr = %lf, batch_loss = %lf, test_loss = "
             "%lf, "
             "test_acc = %lf\n",
             e, e * iteration * batch, current_lr, batch_loss, test_loss,
             test_acc);
+#endif
       }
       if (std::find(spectoram.begin(), spectoram.end(), e) != spectoram.end()) {
+#if !SKIP_SPECTORAM
         calc_spectoram(e);
+#endif
       }
     }
   }
@@ -278,10 +292,10 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
 }
 
 int main(int argc, char *argv[]) {
-  openblas_set_num_threads(8);
+  openblas_set_num_threads(16);
 
   std::mt19937 engine(42);
-  const int n = 30;
+  const int n = 10;
 
   std::vector<int> seeds;
   for (int i = 0; i < n; i++) seeds.emplace_back(engine());
@@ -291,5 +305,11 @@ int main(int argc, char *argv[]) {
   auto inner_dim = std::stoi(argv[2]);
   auto patience = std::stoi(argv[3]);
 
+  auto start = std::chrono::system_clock::now();
   for (auto seed : seeds) experiment(g_radius, inner_dim, patience, seed);
+  auto time = std::chrono::system_clock::now() - start;
+  double time_m =
+      std::chrono::duration_cast<std::chrono::minutes>(time).count();
+  printf("PROCESS %d_%d_%d END: time(minutes) = %f", g_radius, inner_dim,
+         patience, time_m);
 }

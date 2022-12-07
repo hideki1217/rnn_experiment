@@ -1,4 +1,4 @@
-#include "ryapunov.h"
+#include "lyapunov.h"
 
 #include <algorithm>
 #include <iostream>

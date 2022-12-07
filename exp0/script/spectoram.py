@@ -5,10 +5,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import parse
 
-savedir = Path(R"result/spectoram")
+
+cwd = Path(__file__).parent.parent
+savedir = cwd / "result" / "spectoram" 
 if not savedir.exists():
     savedir.mkdir()
 
+datadir = cwd / "log"
 paths = list(filter(lambda x: x.exists(), map(lambda x: x / "spectoram.csv", Path("log").iterdir())))
 def _parse_param(file):
     beta, inner_dim, patience, _ = parse.parse(R"{:d}_{:d}_{:d}_{:d}", file.name)

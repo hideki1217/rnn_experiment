@@ -13,4 +13,6 @@ include_directories(~/local/OpenBLAS/include/openblas)
 enable_testing()
 
 add_subdirectory(src)
+add_subdirectory(exp0)
+add_subdirectory(exp1)
 add_subdirectory(test)

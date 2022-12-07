@@ -29,7 +29,7 @@ void inner_product(int m, int n, const V* w, const V* v, V* out) {
 }
 
 template <typename V>
-V inner_product(int n, const V* w, const V* v) {
+V vvmul(int n, const V* w, const V* v) {
   V reg = 0;
   for (int j = 0; j < n; j++) {
     reg += w[j] * v[j];
@@ -61,7 +61,7 @@ void random_orthogonal(int m, int n, V* w, RandEngine&& engine) {
     }
 
     for (int k = 0; k < i; k++) {
-      auto inner = inner_product(n, &w[k * n], &w[i * n]);
+      auto inner = vvmul(n, &w[k * n], &w[i * n]);
       map([=](V x, V y) { return y - x * inner; }, &w[i * n], n, &w[k * n],
           &w[i * n]);
     }

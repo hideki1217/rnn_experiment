@@ -191,25 +191,34 @@ class BaseData : public MultiClass {
   }
 };
 
-class LinEmbed : public BaseData {
+class LinEmbed : public MultiClass {
  public:
   LinEmbed(int dim, std::unique_ptr<T[]> &&w, int inner_dim, int class_n,
            int cluster_n, T noise_scale, int seed)
-      : BaseData(inner_dim, class_n, cluster_n, noise_scale, seed),
-        embed_dim(dim),
+      : inner(BaseData(inner_dim, class_n, cluster_n, noise_scale, seed)),
+        dim(dim),
         w(std::move(w)) {}
-  int res_size() { return embed_dim; }
-
+  void _transform(const T *x, T *y) {
+    mvmul(dim, inner.dim, w.get(), inner.dim, x, 1, y, 1);
+  }
+  int res_size() { return dim; }
+  virtual int num_class() { return inner.num_class(); };
+  int random_gen(T *res) {
+    T _res[inner.dim];
+    auto label = inner.random_gen(_res);
+    _transform(_res, res);
+    return label;
+  }
   int gen(T *res, int c) {
-    T inner[dim];
-    BaseData::gen(inner, c);
-
-    mvmul(embed_dim, dim, w.get(), dim, inner, 1, res, 1);
-    return labels[c];
+    T _res[inner.dim];
+    auto label = inner.gen(_res, c);
+    _transform(_res, res);
+    return label;
   }
 
+  BaseData inner;
   std::unique_ptr<T[]> w;
-  int embed_dim;
+  int dim;
 };
 
 class RandomEmbed : public LinEmbed {
@@ -223,7 +232,7 @@ class RandomEmbed : public LinEmbed {
   std::unique_ptr<T[]> make_w(int m, int n) {
     w = std::make_unique<T[]>(m * n);
     auto tmp = std::make_unique<T[]>(n * m);
-    random_orthogonal(n, m, tmp.get(), engine);
+    random_orthogonal(n, m, tmp.get(), inner.engine);
     transpose(n, m, tmp.get(), w.get());
     return std::move(w);
   }

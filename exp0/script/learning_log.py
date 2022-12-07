@@ -5,11 +5,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import parse
 
-savedir = Path(R"result/learning_log")
+cwd = Path(__file__).parent.parent
+savedir = cwd / "result" / "learning_log" 
 if not savedir.exists():
     savedir.mkdir()
 
-paths = list(filter(lambda x: x.exists(), map(lambda x: x / "learning_log.csv", Path("log").iterdir())))
+datadir = cwd / "log"
+paths = list(filter(lambda x: x.exists(), map(lambda x: x / "learning_log.csv",  datadir.iterdir())))
 def _parse_param(file):
     beta, inner_dim, patience, _ = parse.parse(R"{:d}_{:d}_{:d}_{:d}", file.name)
     return beta, inner_dim, patience
@@ -39,3 +41,4 @@ for param in param_dict:
     plt.xlabel("No. of training samples")
     plt.tight_layout()
     plt.savefig(savedir/f"{param_stamp}.png")
+    plt.clf()

@@ -8,11 +8,12 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 import parse
 
-savedir = Path(R"result/ED")
+cwd = Path(__file__).parent.parent
+savedir = cwd / "result" / "ED" 
 if not savedir.exists():
     savedir.mkdir()
 
-datadir = Path(R"log")
+datadir = cwd / "log"
 param_dict = defaultdict(list)
 for data in datadir.glob(R"*_*_*_*"):
     w_beta, inner_dim, patience, seed = parse.parse(R"{:d}_{:d}_{:d}_{:d}", data.name)

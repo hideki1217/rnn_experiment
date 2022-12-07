@@ -29,6 +29,7 @@ with Pool(process_n) as p:
 
 interp = r"/home/okumura/workspace/rnn_experiment/venv/bin/python"
 scripts = [
+    ["./script/lyapunov.py"],
     ["./script/trajectory.py", "./script/ED.py", "./script/learning_log.py", "./script/spectoram.py"],
 ]
 

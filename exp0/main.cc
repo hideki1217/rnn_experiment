@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "common.h"
-#include "lyapunov.h"
 #include "mynn.h"
 #include "mynn_custom.h"
 #include "mynn_util.h"
@@ -19,7 +18,6 @@
 using namespace mynn;
 
 #define PRINT_LEARNING_LOG 0
-#define SKIP_SPECTORAM 0
 
 void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
   char savedir[128];
@@ -89,14 +87,12 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
     model.add(down_cast<model::ModelBase>(std::move(soft)));
   }
 
-  std::vector<std::tuple<int, std::vector<T>>> spectorams;
-  auto calc_spectoram = [&](int epoch) {
-    ryap::RNN rnn(dim);
-    std::copy_n(rnn_w.v(), dim * dim, rnn.weight.begin());
-    std::copy_n(rnn_b.v(), dim, rnn.bias.begin());
-
-    spectorams.emplace_back(
-        std::make_tuple(epoch, ryap::spectoram(std::move(rnn))));
+  std::vector<std::tuple<int, std::vector<T>>> model_snapshots;
+  auto save_model = [&](int epoch) {
+    std::vector<T> snapshot((dim + 1) * dim);
+    std::copy_n(rnn_w.v(), dim * dim, &snapshot[0]);
+    std::copy_n(rnn_b.v(), dim, &snapshot[dim * dim]);
+    model_snapshots.emplace_back(std::make_tuple(epoch, std::move(snapshot)));
   };
 
   std::vector<std::tuple<int, T, T, T, T>> learning_log;
@@ -148,7 +144,7 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
     };
 
     const int max_epochs = 60;
-    std::vector<int> spectoram({0, 1, 4, 14, 29, 59});
+    std::vector<int> save_epoch_list({0, 1, 4, 14, 29, 59});
     for (int e = 0; e < max_epochs; e++) {
       T total_loss = 0;
       for (int i = 0; i < iteration; i++) {
@@ -184,14 +180,13 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
             "%d(%d): lr = %lf, batch_loss = %lf, test_loss = "
             "%lf, "
             "test_acc = %lf\n",
-            e, e * iteration * batch, current_lr, batch_loss, test_loss,
-            test_acc);
+            e + 1, (e + 1) * iteration * batch, current_lr, batch_loss,
+            test_loss, test_acc);
 #endif
       }
-      if (std::find(spectoram.begin(), spectoram.end(), e) != spectoram.end()) {
-#if !SKIP_SPECTORAM
-        calc_spectoram(e);
-#endif
+      if (std::find(save_epoch_list.begin(), save_epoch_list.end(), e) !=
+          save_epoch_list.end()) {
+        save_model(e);
       }
     }
   }
@@ -213,18 +208,22 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
     }
   }
 
-  {
-    auto path = std::string(savedir) + "/spectoram.csv";
-    Logger log(path);
-    for (auto &res : spectorams) {
-      int epoch = std::get<0>(res);
-      std::vector<T> &spectoram = std::get<1>(res);
+  {  // save model snapshot
+    for (auto &x : model_snapshots) {
+      int epoch;
+      std::vector<T> snapshot;
+      std::tie(epoch, snapshot) = x;
 
-      log.print("%d", epoch);
-      for (auto &s : spectoram) {
-        log.print(",%f", s);
+      auto path =
+          std::string(savedir) + "/model_" + std::to_string(epoch) + ".csv";
+      Logger log(path);
+      for (int i = 0; i < dim + 1; i++) {
+        log.print("%f", snapshot[i * dim]);
+        for (int j = 1; j < dim; j++) {
+          log.print(",%f", snapshot[i * dim + j]);
+        }
+        log.print("\n");
       }
-      log.print("\n");
     }
   }
 

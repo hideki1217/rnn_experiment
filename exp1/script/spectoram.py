@@ -12,7 +12,7 @@ if not savedir.exists():
     savedir.mkdir()
 
 datadir = cwd / "log"
-paths = list(filter(lambda x: x.exists(), map(lambda x: x / "spectoram.csv", Path("log").iterdir())))
+paths = list(filter(lambda x: x.exists(), map(lambda x: x / "spectoram.csv", datadir.iterdir())))
 def _parse_param(file):
     beta, inner_dim, patience, _ = parse.parse(R"{:d}_{:d}_{:d}_{:d}", file.name)
     return beta, inner_dim, patience

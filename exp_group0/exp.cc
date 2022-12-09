@@ -19,16 +19,25 @@ using namespace mynn;
 
 #define PRINT_LEARNING_LOG 0
 
+#define SAVE_LEARNING_LOG 1
+#define SAVE_MODEL_SNAPSHOTS 1
+#define SAVE_DYNAMICS_SNAPSHOTS 1
+
+#define SAVE_ALL \
+  SAVE_LEARNING_LOG &SAVE_MODEL_SNAPSHOTS &SAVE_DYNAMICS_SNAPSHOTS
+
 void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
   char savedir[128];
-  std::sprintf(savedir, "../../exp0/log/%d_%d_%d_%d", (int)weight_beta,
-               inner_dim, patience, model_seed);
+  std::sprintf(savedir, "../../exp_group0/" EXP_NAME "/log/%d_%d_%d_%d",
+               (int)weight_beta, inner_dim, patience, model_seed);
+#if SAVE_ALL
   {  // もしすでに走らせたことのあるパラメータならもう走らせない。
     struct stat st;
     if (stat(savedir, &st) == 0) {
       return;
     }
   }
+#endif
   std::printf("%d_%d_%d_%d\n", (int)weight_beta, inner_dim, patience,
               model_seed);
 
@@ -46,7 +55,18 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
 
   std::mt19937 engine(model_seed);
 
+#if EXP_ID == 0
   DataProc proc(dim, inner_dim, class_n, M, noise_scale, data_seed);
+#else
+  // 選択行列
+  auto w_in = std::make_unique<T[]>(dim * inner_dim);
+  std::fill_n(w_in.get(), dim * inner_dim, T(0));
+  for (int i = 0; i < std::min(dim, inner_dim); i++) {
+    w_in[i * inner_dim + i] = T(1);
+  }
+  LinEmbed proc(dim, std::move(w_in), inner_dim, class_n, M, noise_scale,
+                data_seed);
+#endif
 
   std::vector<std::vector<T>> test_X;
   std::vector<int> test_Y;
@@ -144,8 +164,14 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
     };
 
     const int max_epochs = 60;
-    std::vector<int> save_epoch_list({0, 1, 4, 14, 29, 59});
-    for (int e = 0; e < max_epochs; e++) {
+    std::vector<int> save_epoch_list({0, 1, 2, 5, 10, 15, 20, 25, 30, 45, 60});
+    for (int epoch = 0;;) {
+      if (std::find(save_epoch_list.begin(), save_epoch_list.end(), epoch) !=
+          save_epoch_list.end()) {
+        save_model(epoch);
+      }
+      if (epoch >= max_epochs) break;
+
       T total_loss = 0;
       for (int i = 0; i < iteration; i++) {
         for (int b = 0; b < batch; b++) {
@@ -167,12 +193,13 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
       }
       T batch_loss = total_loss / iteration;
       scheduler.step(batch_loss);
+      epoch++;
 
       {  // report current state
         T current_lr = scheduler.current_lr();
         T test_loss, test_acc;
         std::tie(test_loss, test_acc) = eval_test();
-        report_learning_log((e + 1) * iteration * batch, current_lr, batch_loss,
+        report_learning_log(epoch * iteration * batch, current_lr, batch_loss,
                             test_loss, test_acc);
 
 #if PRINT_LEARNING_LOG
@@ -180,13 +207,9 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
             "%d(%d): lr = %lf, batch_loss = %lf, test_loss = "
             "%lf, "
             "test_acc = %lf\n",
-            e + 1, (e + 1) * iteration * batch, current_lr, batch_loss,
-            test_loss, test_acc);
+            epoch, epoch * iteration * batch, current_lr, batch_loss, test_loss,
+            test_acc);
 #endif
-      }
-      if (std::find(save_epoch_list.begin(), save_epoch_list.end(), e) !=
-          save_epoch_list.end()) {
-        save_model(e);
       }
     }
   }
@@ -194,6 +217,7 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
   // start save logs
   mkdir(savedir, 0777);
 
+#if SAVE_LEARNING_LOG
   {  // save learning log
     auto log_path = std::string(savedir) + "/learning_log.csv";
     Logger log(log_path);
@@ -207,7 +231,9 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
                 test_acc);
     }
   }
+#endif
 
+#if SAVE_MODEL_SNAPSHOTS
   {  // save model snapshot
     for (auto &x : model_snapshots) {
       int epoch;
@@ -226,7 +252,9 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
       }
     }
   }
+#endif
 
+#if SAVE_DYNAMICS_SNAPSHOTS
   {
     const int span = rnn_t * 5;
     std::vector<std::vector<std::vector<T>>> snapshots(
@@ -281,6 +309,7 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
       }
     }
   }
+#endif
 }
 
 int main(int argc, char *argv[]) {
@@ -302,6 +331,6 @@ int main(int argc, char *argv[]) {
   auto time = std::chrono::system_clock::now() - start;
   double time_m =
       std::chrono::duration_cast<std::chrono::minutes>(time).count();
-  printf("PROCESS %d_%d_%d END: time(minutes) = %f", g_radius, inner_dim,
+  printf("PROCESS %d_%d_%d END: time(minutes) = %f\n", g_radius, inner_dim,
          patience, time_m);
 }

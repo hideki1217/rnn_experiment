@@ -5,7 +5,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import parse
 
-cwd = Path(__file__).parent.parent
+import sys
+name = sys.argv[1]
+
+cwd = Path(__file__).absolute().parent.parent / name
 savedir = cwd / "result" / "learning_log" 
 if not savedir.exists():
     savedir.mkdir()

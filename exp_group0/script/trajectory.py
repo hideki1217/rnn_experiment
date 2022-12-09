@@ -9,7 +9,10 @@ from sklearn.decomposition import PCA
 import parse
 from PIL import Image
 
-cwd = Path(__file__).parent.parent
+import sys
+name = sys.argv[1]
+
+cwd = Path(__file__).absolute().parent.parent / name
 savedir = cwd / "result" / "trajectory" 
 if not savedir.exists():
     savedir.mkdir()
@@ -53,8 +56,6 @@ for param, datas in param_dict.items():
 
             _, state = next(filter(lambda x: x[0] == t, data))
             label_set = set(labels)
-
-            print(f"{param_stamp}:{t}: {seed}")
 
             pca = PCA(n_components=2)
             pcaed = pca.fit_transform(state)

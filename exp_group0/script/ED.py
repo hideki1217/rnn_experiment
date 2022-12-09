@@ -8,7 +8,10 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 import parse
 
-cwd = Path(__file__).parent.parent
+import sys
+name = sys.argv[1]
+
+cwd = Path(__file__).absolute().parent.parent / name
 savedir = cwd / "result" / "ED" 
 if not savedir.exists():
     savedir.mkdir()

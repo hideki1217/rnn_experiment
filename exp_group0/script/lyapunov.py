@@ -1,3 +1,7 @@
+import os
+
+os.environ["OPENBLAS_NUM_THREADS"] = "8"
+
 from pathlib import Path
 from collections import defaultdict
 
@@ -39,7 +43,7 @@ def lyapunov_exponent(model, max_iter = 1000):
 
 def calc_lyap(file):
     max_iter = 1000
-    (epoch, ) = parse.parse(r"model_{}.csv", file.name)
+    (epoch, ) = parse.parse(r"model_{:d}.csv", file.name)
     arr = np.loadtxt(file, dtype=np.float64, delimiter=",",)
     
     model = RNN(weight=arr[:-1], bias=arr[-1])
@@ -47,7 +51,10 @@ def calc_lyap(file):
 
     return (epoch, LEs)
 
-cwd = Path(__file__).parent.parent
+import sys
+name = sys.argv[1]
+
+cwd = Path(__file__).absolute().parent.parent / name
 
 datadir = cwd / "log"
 params = [data for data in datadir.glob(R"*_*_*_*")]
@@ -56,9 +63,11 @@ def f(data):
     les = np.array([np.insert(np.sort(les)[::-1], 0, epoch) for epoch, les in map(calc_lyap , models)])
     np.savetxt(data/"spectoram.csv", les, delimiter=",")
 
+# from threadpoolctl import threadpool_info
+# from pprint import pp
+# pp(threadpool_info())
+
 # for param in params:
 #     f(param)
-p = multiprocessing.Pool(8)
-p.map(f, params)
-p.close()
-p.join()
+with multiprocessing.Pool(4) as p:
+    p.map(f, params)

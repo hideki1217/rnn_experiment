@@ -6,7 +6,6 @@ import itertools
 import sys
 name = sys.argv[1]
 
-process_n = 4
 target = "./" + name
 
 cwd=Path(__file__).absolute()
@@ -21,7 +20,7 @@ def f(param):
         print(f'{target}({param}): failed.', file=sys.stderr)
     return cp.returncode
 
-with Pool(process_n) as p:
+with Pool(8) as p:
     res = p.map(f, itertools.product(g_radius, inner_dim, patience))
 
     if all(map(lambda x: x == 0, res)):

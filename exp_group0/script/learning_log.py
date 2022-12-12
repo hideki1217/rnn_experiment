@@ -44,4 +44,4 @@ for param in param_dict:
     plt.xlabel("No. of training samples")
     plt.tight_layout()
     plt.savefig(savedir/f"{param_stamp}.png")
-    plt.clf()
+    plt.close(fig)

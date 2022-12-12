@@ -1,9 +1,8 @@
 import os
 
-os.environ["OPENBLAS_NUM_THREADS"] = "8"
+os.environ["OPENBLAS_NUM_THREADS"] = "4"
 
 from pathlib import Path
-from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -59,6 +58,10 @@ cwd = Path(__file__).absolute().parent.parent / name
 datadir = cwd / "log"
 params = [data for data in datadir.glob(R"*_*_*_*")]
 def f(data):
+    dst = data / "spectoram.csv"
+    if dst.exists():
+        return
+    
     models = list(data.glob("model_*.csv"))
     les = np.array([np.insert(np.sort(les)[::-1], 0, epoch) for epoch, les in map(calc_lyap , models)])
     np.savetxt(data/"spectoram.csv", les, delimiter=",")
@@ -69,5 +72,5 @@ def f(data):
 
 # for param in params:
 #     f(param)
-with multiprocessing.Pool(4) as p:
+with multiprocessing.Pool(8) as p:
     p.map(f, params)

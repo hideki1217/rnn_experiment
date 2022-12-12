@@ -3,7 +3,6 @@ import re
 from collections import defaultdict
 
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 import parse
@@ -68,7 +67,7 @@ for param, datas in param_dict.items():
             ax.set_ylabel("pca2")
         
         fig.savefig(save/f"{t}.png")
-        plt.clf()
+        plt.close(fig)
 
 # make gif
 for folder in filter(lambda x: x.is_dir(), savedir.iterdir()):

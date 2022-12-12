@@ -1,4 +1,5 @@
 #include <cblas.h>
+#include <lapack.h>
 #include <sys/stat.h>
 
 #include <cassert>
@@ -26,17 +27,21 @@ using namespace mynn;
 #define SAVE_ALL \
   SAVE_LEARNING_LOG &SAVE_MODEL_SNAPSHOTS &SAVE_DYNAMICS_SNAPSHOTS
 
+T max_eigval_abs(int n, const T *w);
+
+int path_exists(const char *path) {
+  struct stat st;
+  return stat(path, &st) == 0;
+}
+
 void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
+  char basedir[] = "../../exp_group0/" EXP_NAME "/log";
+  if (!path_exists(basedir)) mkdir(basedir, 0777);
   char savedir[128];
-  std::sprintf(savedir, "../../exp_group0/" EXP_NAME "/log/%d_%d_%d_%d",
-               (int)weight_beta, inner_dim, patience, model_seed);
+  std::sprintf(savedir, "%s/%d_%d_%d_%d", basedir, (int)weight_beta, inner_dim,
+               patience, model_seed);
 #if SAVE_ALL
-  {  // もしすでに走らせたことのあるパラメータならもう走らせない。
-    struct stat st;
-    if (stat(savedir, &st) == 0) {
-      return;
-    }
-  }
+  if (path_exists(savedir)) return;
 #endif
   std::printf("%d_%d_%d_%d\n", (int)weight_beta, inner_dim, patience,
               model_seed);
@@ -52,21 +57,29 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
   const int rnn_t = 10;
   const int iteration = 800;
   const int data_seed = 42;
+  const int w_in_seed = 12;
 
   std::mt19937 engine(model_seed);
 
-#if EXP_ID == 0
-  DataProc proc(dim, inner_dim, class_n, M, noise_scale, data_seed);
-#else
-  // 選択行列
   auto w_in = std::make_unique<T[]>(dim * inner_dim);
-  std::fill_n(w_in.get(), dim * inner_dim, T(0));
-  for (int i = 0; i < std::min(dim, inner_dim); i++) {
-    w_in[i * inner_dim + i] = T(1);
+  {
+#if EXP_ID == 0
+    // random orthogonal matrix
+    std::mt19937 engine(w_in_seed);
+    auto tmp = std::make_unique<T[]>(inner_dim * dim);
+    random_orthogonal(inner_dim, dim, tmp.get(), engine);
+    transpose(inner_dim, dim, tmp.get(), w_in.get());
+#else
+    // identity matrix
+    auto w_in = std::make_unique<T[]>(dim * inner_dim);
+    std::fill_n(w_in.get(), dim * inner_dim, T(0));
+    for (int i = 0; i < std::min(dim, inner_dim); i++) {
+      w_in[i * inner_dim + i] = T(1);
+    }
+#endif
   }
   LinEmbed proc(dim, std::move(w_in), inner_dim, class_n, M, noise_scale,
                 data_seed);
-#endif
 
   std::vector<std::vector<T>> test_X;
   std::vector<int> test_Y;
@@ -90,13 +103,16 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
     auto soft = std::make_unique<model::SoftMax>(*out);
 
     {
-      std::normal_distribution<> dist(0.0, weight_beta / std::sqrt(rnn->n));
+      std::normal_distribution<> dist(0.0, 1.0 / std::sqrt(rnn->n));
 
-      std::fill_n(rnn->w.v(), rnn->w.size, T(0));
-      for (int i = 0; i < rnn->n; i++)
-        rnn->w._v[i * rnn->n + i] = (1 - weight_eps) * T(1);
-      for (int i = 0; i < rnn->w.size; i++)
-        rnn->w._v[i] += weight_eps * dist(engine);
+      for (int i = 0; i < rnn->w.size; i++) {
+        rnn->w._v[i] = dist(engine);
+      }
+      T a = weight_eps * weight_beta / max_eigval_abs(rnn->n, rnn->w.v());
+      for (int i = 0; i < rnn->w.size; i++) rnn->w._v[i] *= a;
+      for (int i = 0; i < rnn->n; i++) {
+        rnn->w._v[i * rnn->n + i] += (1 - weight_eps) * T(1);
+      }
 
       std::fill_n(rnn->b.v(), rnn->b.size, T(0));
     }
@@ -313,7 +329,7 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
 }
 
 int main(int argc, char *argv[]) {
-  openblas_set_num_threads(8);
+  openblas_set_num_threads(4);
 
   std::mt19937 engine(42);
   const int n = 10;
@@ -333,4 +349,39 @@ int main(int argc, char *argv[]) {
       std::chrono::duration_cast<std::chrono::minutes>(time).count();
   printf("PROCESS %d_%d_%d END: time(minutes) = %f\n", g_radius, inner_dim,
          patience, time_m);
+}
+
+std::tuple<std::vector<T>, std::vector<T>> eigvals(int n, const T *w) {
+  std::vector<T> _w(n * n);
+  std::copy_n(w, n * n, _w.begin());
+
+  int info;
+  int sdim = 0, ldvs = 1;
+  int lwork = -1;
+  T work_size;
+  std::vector<T> real(n);
+  std::vector<T> imag(n);
+  LAPACK_dgees("N", "N", nullptr, &n, &_w[0], &n, &sdim, &real[0], &imag[0],
+               nullptr, &ldvs, &work_size, &lwork, nullptr, &info);
+  lwork = (int)work_size;
+  std::vector<T> work(lwork);
+  LAPACK_dgees("N", "N", nullptr, &n, &_w[0], &n, &sdim, &real[0], &imag[0],
+               nullptr, &ldvs, &work[0], &lwork, nullptr, &info);
+
+  return std::make_tuple(real, imag);
+}
+
+T max_eigval_abs(int n, const T *w) {
+  std::vector<T> real, imag;
+  std::tie(real, imag) = eigvals(n, w);
+
+  T max_norm = -1e10;
+  for (int i = 0; i < n; i++) {
+    T norm = real[i] * real[i] + imag[i] * imag[i];
+    if (max_norm < norm) {
+      max_norm = norm;
+    }
+  }
+
+  return std::sqrt(max_norm);
 }

@@ -1,3 +1,7 @@
+import os
+
+os.environ["OPENBLAS_NUM_THREADS"] = "8"
+
 from pathlib import Path
 import re
 from collections import defaultdict
@@ -49,7 +53,7 @@ for param, datas in param_dict.items():
         label_set = set(labels)
         for t, state in data:
             cov = np.cov(state.T)
-            eigvals = np.linalg.eigvals(cov)
+            eigvals = np.linalg.eigvals(cov).real
             ED = sum(eigvals)**2 / sum(eigvals * eigvals)
             EDs.append((t, ED))
         
@@ -68,3 +72,4 @@ for param, datas in param_dict.items():
     plt.xlabel("time")
     plt.ylabel("ED(t)")
     plt.savefig(savedir/f"{param_stamp}.png")
+    plt.close()

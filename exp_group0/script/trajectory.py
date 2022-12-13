@@ -69,15 +69,14 @@ for param, datas in param_dict.items():
         fig.savefig(save/f"{t}.png")
         plt.close(fig)
 
-# make gif
-for folder in filter(lambda x: x.is_dir(), savedir.iterdir()):
+    # make gif
     pictures=[]
-    for path in filter(lambda x: re.match(R"[0-9]*\.png", x.name), folder.iterdir()):
+    for path in filter(lambda x: re.match(R"[0-9]*\.png", x.name), save.iterdir()):
         (time, )=parse.parse("{:d}.png", path.name)
         img = Image.open(path)
         pictures.append((time, img))
     pictures = list(map(lambda x: x[1], sorted(pictures)))
-    pictures[0].save(folder.parent / f'{folder.name}.gif',
+    pictures[0].save(save.parent / f'{save.name}.gif',
                     save_all=True, 
                     append_images=pictures[1:], 
                     optimize=True, 

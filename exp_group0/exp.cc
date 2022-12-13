@@ -25,7 +25,7 @@ using namespace mynn;
 #define SAVE_DYNAMICS_SNAPSHOTS 1
 
 #define SAVE_ALL \
-  SAVE_LEARNING_LOG &SAVE_MODEL_SNAPSHOTS &SAVE_DYNAMICS_SNAPSHOTS
+  SAVE_LEARNING_LOG &SAVE_MODEL_SNAPSHOTS &SAVE_DYNAMICS_SNAPSHOTS &!PRINT_LEARNING_LOG
 
 T max_eigval_abs(int n, const T *w);
 
@@ -53,11 +53,13 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
   const int class_n = 2, dim = 200;
   const T noise_scale = 0.02;
   const int M = 60;
-  const int test_N = batch * 3;
+  const int test_N = batch * 10;
   const int rnn_t = 10;
-  const int iteration = 800;
+  const int iteration = 800;  // num of samples per 1 epoch
   const int data_seed = 42;
   const int w_in_seed = 12;
+
+  assert(iteration % batch == 0);
 
   std::mt19937 engine(model_seed);
 
@@ -71,7 +73,6 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
     transpose(inner_dim, dim, tmp.get(), w_in.get());
 #else
     // identity matrix
-    auto w_in = std::make_unique<T[]>(dim * inner_dim);
     std::fill_n(w_in.get(), dim * inner_dim, T(0));
     for (int i = 0; i < std::min(dim, inner_dim); i++) {
       w_in[i * inner_dim + i] = T(1);
@@ -179,8 +180,8 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
       return std::tuple<T, T>(total_loss, accuracy.result());
     };
 
-    const int max_epochs = 60;
-    std::vector<int> save_epoch_list({0, 1, 2, 5, 10, 15, 20, 25, 30, 45, 60});
+    const int max_epochs = 150;
+    std::vector<int> save_epoch_list({0, 1, 2, 5, 10, 15, 20, 25, 30, 45, 60, 90, 120, 150});
     for (int epoch = 0;;) {
       if (std::find(save_epoch_list.begin(), save_epoch_list.end(), epoch) !=
           save_epoch_list.end()) {
@@ -189,7 +190,7 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
       if (epoch >= max_epochs) break;
 
       T total_loss = 0;
-      for (int i = 0; i < iteration; i++) {
+      for (int i = 0; i < iteration / batch; i++) {
         for (int b = 0; b < batch; b++) {
           met->_correct[b] = proc.random_gen(&(nn->input())[b * dim]);
         }
@@ -215,7 +216,7 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
         T current_lr = scheduler.current_lr();
         T test_loss, test_acc;
         std::tie(test_loss, test_acc) = eval_test();
-        report_learning_log(epoch * iteration * batch, current_lr, batch_loss,
+        report_learning_log(epoch * iteration, current_lr, batch_loss,
                             test_loss, test_acc);
 
 #if PRINT_LEARNING_LOG
@@ -223,7 +224,7 @@ void experiment(T weight_beta, int inner_dim, int patience, int model_seed) {
             "%d(%d): lr = %lf, batch_loss = %lf, test_loss = "
             "%lf, "
             "test_acc = %lf\n",
-            epoch, epoch * iteration * batch, current_lr, batch_loss, test_loss,
+            epoch, epoch * iteration, current_lr, batch_loss, test_loss,
             test_acc);
 #endif
       }

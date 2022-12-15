@@ -6,3 +6,4 @@ tmp/
 result/
 venv/
 __pycache__/
+models/

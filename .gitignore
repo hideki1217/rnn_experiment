@@ -7,3 +7,4 @@ result/
 venv/
 __pycache__/
 models/
+time_evol/
